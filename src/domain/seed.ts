@@ -1,4 +1,6 @@
 import { addDays, format, parseISO } from 'date-fns';
+import { upgradeDatabase } from './migration';
+import type { DatabaseV2 } from './v2';
 import type { DemoDatabase } from './types';
 
 // Fecha de referencia fija: no cambia al recargar ni al restaurar la demostración.
@@ -22,7 +24,7 @@ const titles = [
   'Registrar cierre de observación',
 ];
 
-export function createDemoDatabase(): DemoDatabase {
+function createLegacyDatabase(): DemoDatabase {
   const installations = [
     { id: 'inst-1', name: 'Estación Aurora', location: 'Zona norte · Ficticia' },
     { id: 'inst-2', name: 'Estación Horizonte', location: 'Zona centro · Ficticia' },
@@ -159,4 +161,8 @@ export function createDemoDatabase(): DemoDatabase {
       status: i < 3 ? 'pendiente de revisión' : 'registrado',
     })),
   };
+}
+
+export function createDemoDatabase(): DatabaseV2 {
+  return upgradeDatabase(createLegacyDatabase(), 'demostración');
 }

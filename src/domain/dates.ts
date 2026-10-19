@@ -16,7 +16,7 @@ export const calendarDate = (timestamp: string): string => {
   return `${part('year')}-${part('month')}-${part('day')}`;
 };
 export const today = () => calendarDate(new Date().toISOString());
-export const isPast = (date: string, now = today()) => date < now;
+export const isPast = (date: string, now = today()) => Boolean(date) && date < now;
 export const displayDate = (date: string) => {
   const parsed = parseISO(date.includes('T') ? calendarDate(date) : date);
   return isValid(parsed) ? format(parsed, 'dd MMM yyyy', { locale: es }) : 'Sin fecha';

@@ -1,3 +1,4 @@
+import { Attachments, History } from '../components/RecordTools';
 import { errorMessage } from '../domain/errors';
 import { useToast } from '../components/toast-context';
 import { useState } from 'react';
@@ -44,6 +45,7 @@ export function Findings() {
     .filter((f) => {
       const asset = db.assets.find((a) => a.id === f.assetId);
       return (
+        !f.archived &&
         `${f.code} ${f.title} ${f.responsible} ${asset?.name} ${asset?.code}`
           .toLocaleLowerCase('es')
           .includes(search.toLocaleLowerCase('es')) &&
@@ -127,7 +129,14 @@ export function Findings() {
               label="Todos los estados"
               value={state}
               onChange={(v) => setFilter('estado', v)}
-              options={['abierto', 'en progreso', 'cerrado', 'pendientes', 'vencidos'].map((v) => ({
+              options={[
+                'abierto',
+                'en progreso',
+                'pendiente de verificación',
+                'cerrado',
+                'pendientes',
+                'vencidos',
+              ].map((v) => ({
                 value: v,
                 label: v,
               }))}
@@ -269,10 +278,22 @@ export function Findings() {
               </button>
               <button className="button text-danger" onClick={() => setDeleting(true)}>
                 <Trash2 size={15} />
-                Eliminar
+                Archivar
               </button>
             </div>
-            <h3 className="subheading">Historial de seguimiento</h3>
+            <dl className="detail-grid">
+              <div>
+                <dt>Acción correctiva</dt>
+                <dd>{selected.correctiveAction || 'Sin registrar'}</dd>
+              </div>
+              <div>
+                <dt>Justificación del cierre</dt>
+                <dd>{selected.closureJustification || 'Sin registrar'}</dd>
+              </div>
+            </dl>
+            <Attachments kind="finding" id={selected.id} />
+            <History kind="finding" id={selected.id} />
+            <h3 className="subheading">Seguimiento y comentarios</h3>
             <div className="history-list">
               {events.map((e) => (
                 <article key={e.id}>
@@ -299,10 +320,10 @@ export function Findings() {
             </div>
             <form
               className="comment-form"
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 try {
-                  addComment(selected.id, comment);
+                  await addComment(selected.id, comment);
                   setComment('');
                   setError('');
                   toast('Comentario registrado.');
@@ -346,14 +367,18 @@ export function Findings() {
       <Confirm
         open={deleting && Boolean(selected)}
         onClose={() => setDeleting(false)}
-        title="Eliminar hallazgo"
-        description="Se eliminarán este hallazgo y todos sus comentarios e historial. Sus alertas derivadas también desaparecerán. Esta acción no se puede deshacer."
-        label="Eliminar hallazgo"
+        title="Archivar hallazgo"
+        description="Se conserva el hallazgo con sus comentarios e historial. Dejará de formar parte de los pendientes activos."
+        label="Archivar hallazgo"
         danger
         onConfirm={() => {
-          if (selected) remove(selected.id);
-          setFilter('registro', '');
-          toast('Hallazgo e historial eliminados.');
+          if (selected)
+            void remove(selected.id)
+              .then(() => {
+                setFilter('registro', '');
+                toast('Hallazgo archivado; historial conservado.');
+              })
+              .catch((e) => setError(errorMessage(e, 'No se pudo archivar.')));
         }}
       />
     </>

@@ -101,6 +101,7 @@ describe('Motor determinístico de alertas', () => {
     const db = createDemoDatabase();
     db.findings[0]!.dueDate = DEMO_DATE;
     db.ppe[0]!.nextInspection = DEMO_DATE;
+    db.ppe[0]!.inspectionStatus = 'registrada';
     expect(deriveAlerts(db, DEMO_DATE).some((a) => a.id === 'R2:finding-1')).toBe(false);
     expect(deriveAlerts(db, DEMO_DATE).some((a) => a.id === 'R3:ppe-1')).toBe(false);
   });

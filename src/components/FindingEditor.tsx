@@ -30,6 +30,13 @@ export function FindingEditor({
   };
   const toast = useToast();
   const [error, setError] = useState('');
+  const [correctiveAction, setAction] = useState(
+    String(finding && 'correctiveAction' in finding ? finding.correctiveAction : ''),
+  );
+  const [closureJustification, setJustification] = useState(
+    String(finding && 'closureJustification' in finding ? finding.closureJustification : ''),
+  );
+  const [extraDirty, setExtraDirty] = useState(false);
   const [discard, setDiscard] = useState(false);
   const {
     register,
@@ -48,7 +55,7 @@ export function FindingEditor({
     },
   });
   const close = () => {
-    if (isDirty) setDiscard(true);
+    if (isDirty || extraDirty) setDiscard(true);
     else exit();
   };
   return (
@@ -61,9 +68,12 @@ export function FindingEditor({
     >
       <form
         onSubmit={(event) => {
-          void handleSubmit((values) => {
+          void handleSubmit(async (values) => {
             try {
-              const id = save(values, finding?.id);
+              const id = await save(
+                { ...values, correctiveAction, closureJustification },
+                finding?.id,
+              );
               toast(
                 finding
                   ? 'Hallazgo actualizado.'
@@ -88,11 +98,13 @@ export function FindingEditor({
             <Field label="Activo asociado" required error={errors.assetId?.message}>
               <select {...register('assetId')}>
                 <option value="">Selecciona un activo</option>
-                {assets.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} · {a.name}
-                  </option>
-                ))}
+                {assets
+                  .filter((a) => !a.archived || a.id === finding?.assetId)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} · {a.name}
+                    </option>
+                  ))}
               </select>
             </Field>
           </div>
@@ -112,6 +124,7 @@ export function FindingEditor({
             <select {...register('status')}>
               <option value="abierto">Abierto</option>
               <option value="en progreso">En progreso</option>
+              <option value="pendiente de verificación">Pendiente de verificación</option>
               <option value="cerrado">Cerrado</option>
             </select>
           </Field>
@@ -123,6 +136,28 @@ export function FindingEditor({
               type="date"
               min={finding ? calendarDate(finding.createdAt) : today()}
               {...register('dueDate')}
+            />
+          </Field>
+        </div>
+        <div className="form-grid">
+          <Field label="Acción correctiva (obligatoria al cerrar)">
+            <textarea
+              value={correctiveAction}
+              maxLength={3000}
+              onChange={(e) => {
+                setAction(e.target.value);
+                setExtraDirty(true);
+              }}
+            />
+          </Field>
+          <Field label="Justificación del cierre (obligatoria al cerrar)">
+            <textarea
+              value={closureJustification}
+              maxLength={3000}
+              onChange={(e) => {
+                setJustification(e.target.value);
+                setExtraDirty(true);
+              }}
             />
           </Field>
         </div>
@@ -151,7 +186,7 @@ export function FindingEditor({
           </button>
         </div>
       </form>
-      <NavigationGuard leaving={leaving} dirty={isDirty && !isSubmitting} />
+      <NavigationGuard leaving={leaving} dirty={(isDirty || extraDirty) && !isSubmitting} />
     </Modal>
   );
 }

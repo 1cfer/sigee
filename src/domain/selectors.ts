@@ -6,7 +6,7 @@ import type { DemoDatabase, DerivedAlert } from './types';
 export function deriveAlerts(db: DemoDatabase, now = today()): DerivedAlert[] {
   const alerts: DerivedAlert[] = [];
   for (const f of db.findings) {
-    if (f.status === 'cerrado') continue;
+    if (f.status === 'cerrado' || ('archived' in f && f.archived)) continue;
     const base = {
       sourceType: 'hallazgo' as const,
       sourceId: f.id,
@@ -32,7 +32,10 @@ export function deriveAlerts(db: DemoDatabase, now = today()): DerivedAlert[] {
       });
   }
   for (const p of db.ppe)
-    if (isPast(p.nextInspection, now))
+    if (
+      !('archived' in p && p.archived) &&
+      (isPast(p.nextInspection, now) || p.inspectionStatus === 'pendiente')
+    )
       alerts.push({
         id: `R3:${p.id}`,
         sourceType: 'epp',
@@ -44,20 +47,27 @@ export function deriveAlerts(db: DemoDatabase, now = today()): DerivedAlert[] {
         path: `/epp?registro=${p.id}`,
       });
   for (const s of db.studies)
-    if (isPast(s.nextReview, now))
+    if (
+      !('archived' in s && s.archived) &&
+      s.nextReview &&
+      (isPast(s.nextReview, now) ||
+        (s.nextReview >= now &&
+          s.nextReview <=
+            format(new Date(new Date(now + 'T12:00:00Z').getTime() + 30 * 86400000), 'yyyy-MM-dd')))
+    )
       alerts.push({
         id: `R4:estudio:${s.id}`,
         sourceType: 'estudio',
         sourceId: s.id,
         severity: 'atención',
-        title: `Revisión pendiente · ${s.reference}`,
+        title: `${isPast(s.nextReview, now) ? 'Revisión pendiente' : 'Próxima revisión'} · ${s.reference}`,
         description: 'Registro documental de estudio pendiente de revisión.',
         relevantDate: s.nextReview,
         path: `/estudios-documentos?tipo=estudios&registro=${s.id}`,
         assetId: s.assetId,
       });
   for (const d of db.documents)
-    if (isPast(d.reviewDate, now))
+    if (!('archived' in d && d.archived) && isPast(d.reviewDate, now))
       alerts.push({
         id: `R4:documento:${d.id}`,
         sourceType: 'documento',
@@ -78,7 +88,9 @@ export function deriveAlerts(db: DemoDatabase, now = today()): DerivedAlert[] {
 }
 
 export function selectMetrics(db: DemoDatabase, now = today()) {
-  const open = db.findings.filter((f) => f.status !== 'cerrado');
+  const open = db.findings.filter(
+    (f) => f.status !== 'cerrado' && !('archived' in f && f.archived),
+  );
   return {
     assets: db.assets.length,
     open: open.length,
@@ -96,7 +108,7 @@ export function selectMetrics(db: DemoDatabase, now = today()) {
 }
 export function selectCharts(db: DemoDatabase, now = today()) {
   return {
-    statuses: ['abierto', 'en progreso', 'cerrado'].map((name) => ({
+    statuses: ['abierto', 'en progreso', 'pendiente de verificación', 'cerrado'].map((name) => ({
       name,
       value: db.findings.filter((f) => f.status === name).length,
     })),
@@ -130,11 +142,15 @@ export function assetReviewPending(db: DemoDatabase, id: string, now = today()) 
   return (
     db.studies.some(
       (s) =>
-        s.assetId === id && (isPast(s.nextReview, now) || s.status === 'pendiente de revisión'),
+        s.assetId === id &&
+        !('archived' in s && s.archived) &&
+        (!s.nextReview || isPast(s.nextReview, now)),
     ) ||
     db.documents.some(
       (d) =>
-        d.assetId === id && (isPast(d.reviewDate, now) || d.status === 'pendiente de revisión'),
+        d.assetId === id &&
+        !('archived' in d && d.archived) &&
+        (!d.reviewDate || isPast(d.reviewDate, now)),
     )
   );
 }

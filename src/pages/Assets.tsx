@@ -1,3 +1,4 @@
+import { ArchiveButton, EntityEditor, History, RecordState } from '../components/RecordTools';
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Boxes, Plus } from 'lucide-react';
@@ -14,12 +15,25 @@ import {
   PriorityBadge,
   SearchInput,
   StatusBadge,
+  Modal,
 } from '../components/ui';
 
 export function Assets() {
   const db = useDatabase((s) => s.db);
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState('');
+  const [edit, setEdit] = useState<{ kind: 'asset' | 'installation'; id?: string }>();
+  const [showArchived, setShowArchived] = useState(false);
+  const installationsView = params.get('vista') === 'instalaciones';
+  const selectedInstallation = db.installations.find(
+    (i) => i.id === params.get('instalacionDetalle'),
+  );
+  const set = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next);
+  };
   const [type, setType] = useState('');
   const [sort, setSort] = useState('code');
   const [review, setReview] = useState('');
@@ -27,6 +41,7 @@ export function Assets() {
   const filtered = db.assets
     .filter(
       (a) =>
+        (showArchived || !a.archived) &&
         `${a.code} ${a.name} ${a.nominalVoltage}`
           .toLocaleLowerCase('es')
           .includes(search.toLocaleLowerCase('es')) &&
@@ -48,121 +63,281 @@ export function Assets() {
         eyebrow="02 / REGISTROS CONECTADOS"
         title="Activos eléctricos"
         description="Un punto de encuentro para los hallazgos, documentos y recursos de cada activo."
+        actions={
+          <button
+            className="button primary"
+            onClick={() => setEdit({ kind: installationsView ? 'installation' : 'asset' })}
+          >
+            <Plus size={16} />
+            {installationsView ? 'Crear instalación' : 'Registrar activo'}
+          </button>
+        }
       />
-      <div className="small-summary">
-        <Boxes size={18} />
-        <strong>{db.assets.length} activos</strong>
-        <span>en {db.installations.length} instalaciones ficticias</span>
+      <div className="tabs" role="group" aria-label="Vista de activos">
+        <button className={!installationsView ? 'active' : ''} onClick={() => set('vista', '')}>
+          Activos eléctricos
+        </button>
+        <button
+          className={installationsView ? 'active' : ''}
+          onClick={() => set('vista', 'instalaciones')}
+        >
+          Instalaciones
+        </button>
       </div>
-      <section className="panel table-panel">
-        <div className="toolbar">
-          <SearchInput value={search} onChange={setSearch} placeholder="Buscar activo o código…" />
-          <div className="toolbar-filters">
-            <FilterSelect
-              label="Todas las instalaciones"
-              value={installation}
-              onChange={(v) => {
-                const next = new URLSearchParams(params);
-                if (v) next.set('instalacion', v);
-                else next.delete('instalacion');
-                setParams(next);
-              }}
-              options={db.installations.map((i) => ({ value: i.id, label: i.name }))}
-            />
-            <FilterSelect
-              label="Todos los tipos"
-              value={type}
-              onChange={setType}
-              options={[...new Set(db.assets.map((a) => a.type))].map((v) => ({
-                value: v,
-                label: v,
-              }))}
-            />
-            <FilterSelect
-              label="Revisión documental"
-              value={review}
-              onChange={setReview}
-              options={[
-                { value: 'pendiente', label: 'Pendiente de revisión' },
-                { value: 'registrado', label: 'Sin pendientes' },
-              ]}
-            />
-            <select
-              className="filter-select"
-              aria-label="Ordenar activos"
-              value={sort}
-              onChange={(e) => setSort(e.target.value)}
-            >
-              <option value="code">Ordenar: código</option>
-              <option value="name">Ordenar: nombre</option>
-              <option value="findings">Ordenar: hallazgos</option>
-            </select>
-          </div>
-        </div>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Activo</th>
-                <th>Instalación</th>
-                <th>Tipo / tensión nominal</th>
-                <th>Estado administrativo</th>
-                <th>Hallazgos abiertos</th>
-                <th>Revisión documental</th>
-                <th>
-                  <span className="sr-only">Ficha</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((a) => (
-                <tr key={a.id}>
-                  <td>
-                    <Link className="table-title" to={`/activos/${a.id}`}>
-                      {a.name}
-                    </Link>
-                    <span className="table-sub">{a.code}</span>
-                  </td>
-                  <td>{db.installations.find((i) => i.id === a.installationId)?.name}</td>
-                  <td>
-                    {a.type}
-                    <span className="table-sub">{a.nominalVoltage} · Referencia ficticia</span>
-                  </td>
-                  <td>
-                    <StatusBadge status={a.administrativeStatus} />
-                  </td>
-                  <td>
-                    <span className="number-pill">
-                      {
-                        db.findings.filter((f) => f.assetId === a.id && f.status !== 'cerrado')
-                          .length
-                      }
-                    </span>
-                  </td>
-                  <td>
-                    <Badge tone={assetReviewPending(db, a.id) ? 'amber' : 'teal'}>
-                      {assetReviewPending(db, a.id) ? 'Pendiente' : 'Sin pendientes'}
-                    </Badge>
-                  </td>
-                  <td>
-                    <Link
-                      className="icon-button"
-                      aria-label={`Abrir ${a.code}`}
-                      to={`/activos/${a.id}`}
-                    >
-                      <ArrowUpRight size={17} />
-                    </Link>
-                  </td>
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={showArchived}
+          onChange={(e) => setShowArchived(e.target.checked)}
+        />
+        Incluir archivados
+      </label>
+      {installationsView ? (
+        <section className="panel table-panel">
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Instalación</th>
+                  <th>Ubicación</th>
+                  <th>Responsable</th>
+                  <th>Estado</th>
+                  <th>Activos</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {!filtered.length && <EmptyState />}
-        <div className="table-footer">
-          {filtered.length} de {db.assets.length} activos · Información ficticia de referencia
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {db.installations
+                  .filter((i) => showArchived || !i.archived)
+                  .map((i) => (
+                    <tr key={i.id}>
+                      <td>
+                        <button
+                          className="table-title"
+                          onClick={() => set('instalacionDetalle', i.id)}
+                        >
+                          {i.name}
+                        </button>
+                        <span className="table-sub">{i.code}</span>
+                      </td>
+                      <td>{i.location}</td>
+                      <td>{i.responsible}</td>
+                      <td>
+                        <StatusBadge status={i.archived ? 'archivada' : 'activa'} />
+                      </td>
+                      <td>{db.assets.filter((a) => a.installationId === i.id).length}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
+        <>
+          <div className="small-summary">
+            <Boxes size={18} />
+            <strong>{db.assets.length} activos</strong>
+            <span>en {db.installations.length} instalaciones ficticias</span>
+          </div>
+          <section className="panel table-panel">
+            <div className="toolbar">
+              <SearchInput
+                value={search}
+                onChange={setSearch}
+                placeholder="Buscar activo o código…"
+              />
+              <div className="toolbar-filters">
+                <FilterSelect
+                  label="Todas las instalaciones"
+                  value={installation}
+                  onChange={(v) => {
+                    const next = new URLSearchParams(params);
+                    if (v) next.set('instalacion', v);
+                    else next.delete('instalacion');
+                    setParams(next);
+                  }}
+                  options={db.installations.map((i) => ({ value: i.id, label: i.name }))}
+                />
+                <FilterSelect
+                  label="Todos los tipos"
+                  value={type}
+                  onChange={setType}
+                  options={[...new Set(db.assets.map((a) => a.type))].map((v) => ({
+                    value: v,
+                    label: v,
+                  }))}
+                />
+                <FilterSelect
+                  label="Revisión documental"
+                  value={review}
+                  onChange={setReview}
+                  options={[
+                    { value: 'pendiente', label: 'Pendiente de revisión' },
+                    { value: 'registrado', label: 'Sin pendientes' },
+                  ]}
+                />
+                <select
+                  className="filter-select"
+                  aria-label="Ordenar activos"
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                >
+                  <option value="code">Ordenar: código</option>
+                  <option value="name">Ordenar: nombre</option>
+                  <option value="findings">Ordenar: hallazgos</option>
+                </select>
+              </div>
+            </div>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Activo</th>
+                    <th>Instalación</th>
+                    <th>Tipo / tensión nominal</th>
+                    <th>Estado administrativo</th>
+                    <th>Hallazgos abiertos</th>
+                    <th>Revisión documental</th>
+                    <th>
+                      <span className="sr-only">Ficha</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((a) => (
+                    <tr key={a.id}>
+                      <td>
+                        <Link className="table-title" to={`/activos/${a.id}`}>
+                          {a.name}
+                        </Link>
+                        <span className="table-sub">{a.code}</span>
+                      </td>
+                      <td>{db.installations.find((i) => i.id === a.installationId)?.name}</td>
+                      <td>
+                        {a.type}
+                        <span className="table-sub">{a.nominalVoltage} · Referencia ficticia</span>
+                      </td>
+                      <td>
+                        <StatusBadge status={a.administrativeStatus} />
+                      </td>
+                      <td>
+                        <span className="number-pill">
+                          {
+                            db.findings.filter((f) => f.assetId === a.id && f.status !== 'cerrado')
+                              .length
+                          }
+                        </span>
+                      </td>
+                      <td>
+                        <Badge tone={assetReviewPending(db, a.id) ? 'amber' : 'teal'}>
+                          {assetReviewPending(db, a.id) ? 'Pendiente' : 'Sin pendientes'}
+                        </Badge>
+                      </td>
+                      <td>
+                        <Link
+                          className="icon-button"
+                          aria-label={`Abrir ${a.code}`}
+                          to={`/activos/${a.id}`}
+                        >
+                          <ArrowUpRight size={17} />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!filtered.length && <EmptyState />}
+            <div className="table-footer">
+              {filtered.length} de {db.assets.length} activos · Información ficticia de referencia
+            </div>
+          </section>
+        </>
+      )}
+      {selectedInstallation && (
+        <Modal
+          open
+          wide
+          onClose={() => set('instalacionDetalle', '')}
+          title={selectedInstallation.name}
+          description={`${selectedInstallation.code} · Ficha de instalación`}
+        >
+          <div className="record-body">
+            <RecordState
+              archived={selectedInstallation.archived}
+              provenance={selectedInstallation.provenance}
+            />
+            <p>{selectedInstallation.description}</p>
+            <dl className="detail-grid">
+              <div>
+                <dt>Ubicación general</dt>
+                <dd>{selectedInstallation.location}</dd>
+              </div>
+              <div>
+                <dt>Responsable</dt>
+                <dd>{selectedInstallation.responsible}</dd>
+              </div>
+            </dl>
+            <div className="detail-actions">
+              <button
+                className="button secondary"
+                onClick={() => setEdit({ kind: 'installation', id: selectedInstallation.id })}
+              >
+                Editar instalación
+              </button>
+              <ArchiveButton
+                kind="installation"
+                id={selectedInstallation.id}
+                archived={selectedInstallation.archived}
+              />
+            </div>
+            <h3>Registros relacionados</h3>
+            <div className="related-list">
+              {db.assets
+                .filter((a) => a.installationId === selectedInstallation.id)
+                .map((a) => (
+                  <Link key={a.id} to={`/activos/${a.id}`}>
+                    {a.code} · {a.name}
+                  </Link>
+                ))}
+              {db.findings
+                .filter((f) =>
+                  db.assets.some(
+                    (a) => a.id === f.assetId && a.installationId === selectedInstallation.id,
+                  ),
+                )
+                .map((f) => (
+                  <Link key={f.id} to={`/hallazgos?registro=${f.id}`}>
+                    {f.code} · {f.title}
+                  </Link>
+                ))}
+              {db.documents
+                .filter(
+                  (d) =>
+                    d.installationId === selectedInstallation.id ||
+                    db.assets.some(
+                      (a) => a.id === d.assetId && a.installationId === selectedInstallation.id,
+                    ),
+                )
+                .map((d) => (
+                  <Link key={d.id} to={`/estudios-documentos?tipo=documentos&registro=${d.id}`}>
+                    {d.code} · {d.title}
+                  </Link>
+                ))}
+            </div>
+            <History kind="installation" id={selectedInstallation.id} />
+          </div>
+        </Modal>
+      )}
+      {edit && (
+        <EntityEditor
+          {...edit}
+          key={`${edit.kind}-${edit.id}`}
+          onClose={() => setEdit(undefined)}
+          onSaved={(id) => {
+            if (edit.kind === 'installation') set('instalacionDetalle', id);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -171,6 +346,7 @@ export function AssetDetail() {
   const { id } = useParams();
   const db = useDatabase((s) => s.db);
   const [create, setCreate] = useState(false);
+  const [edit, setEdit] = useState(false);
   const asset = db.assets.find((a) => a.id === id);
   if (!asset)
     return (
@@ -203,12 +379,24 @@ export function AssetDetail() {
         title={asset.name}
         description={`${db.installations.find((i) => i.id === asset.installationId)?.name} · Instalación ficticia`}
         actions={
-          <button className="button primary" onClick={() => setCreate(true)}>
-            <Plus size={17} />
-            Crear hallazgo
-          </button>
+          <>
+            <button className="button secondary" onClick={() => setEdit(true)}>
+              Editar activo
+            </button>
+            <ArchiveButton kind="asset" id={asset.id} archived={asset.archived} />
+            <button
+              disabled={asset.archived}
+              className="button primary"
+              onClick={() => setCreate(true)}
+            >
+              <Plus size={17} />
+              Crear hallazgo
+            </button>
+          </>
         }
       />
+      <RecordState archived={asset.archived} provenance={asset.provenance} />
+      <p className="detail-description">{asset.description}</p>
       <section className="asset-facts panel">
         <div>
           <span>Código</span>
@@ -225,6 +413,14 @@ export function AssetDetail() {
         <div>
           <span>Estado administrativo</span>
           <StatusBadge status={asset.administrativeStatus} />
+        </div>
+        <div>
+          <span>Estado operativo declarado</span>
+          <strong>{asset.operationalStatus}</strong>
+        </div>
+        <div>
+          <span>Responsable</span>
+          <strong>{asset.responsible}</strong>
         </div>
       </section>
       <div className="detail-columns">
@@ -306,7 +502,8 @@ export function AssetDetail() {
                     <div>
                       <h3>{db.ppe.find((p) => p.id === a.ppeId)?.type}</h3>
                       <p>
-                        {a.quantity} unidad(es) · {displayDate(a.assignedAt)}
+                        {a.quantity} unidad(es) · {a.returnedAt ? 'Devuelto' : 'Asignación activa'}{' '}
+                        · {displayDate(a.assignedAt)}
                       </p>
                     </div>
                     <ArrowUpRight size={16} />
@@ -368,6 +565,10 @@ export function AssetDetail() {
           </section>
         </div>
       </div>
+      <section className="panel record-body">
+        <History kind="asset" id={asset.id} />
+      </section>
+      {edit && <EntityEditor kind="asset" id={asset.id} onClose={() => setEdit(false)} />}
       {create && <FindingEditor assetId={asset.id} onClose={() => setCreate(false)} />}
     </>
   );

@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { Check, Search, X, ArrowUpRight, Inbox } from 'lucide-react';
-import { cloneElement, useId, useState, type ReactElement, type ReactNode } from 'react';
+import { cloneElement, useId, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ToastContext } from './toast-context';
 
@@ -143,16 +143,23 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const content = useRef<HTMLDivElement>(null);
+  const [discard, setDiscard] = useState(false);
+  const close = () => {
+    if (content.current?.querySelector('form[data-unsaved="true"]')) setDiscard(true);
+    else onClose();
+  };
   return (
     <Dialog.Root
       open={open}
       onOpenChange={(v) => {
-        if (!v) onClose();
+        if (!v) close();
       }}
     >
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content
+          ref={content}
           className={`dialog-content ${wide ? 'dialog-wide' : ''}`}
           onInteractOutside={(e) => e.preventDefault()}
         >
@@ -166,6 +173,23 @@ export function Modal({
             </Dialog.Close>
           </div>
           {children}
+          {discard && (
+            <div className="discard-prompt">
+              <p>Hay información sin guardar en este formulario.</p>
+              <button className="button secondary" onClick={() => setDiscard(false)}>
+                Seguir editando
+              </button>
+              <button
+                className="button danger"
+                onClick={() => {
+                  setDiscard(false);
+                  onClose();
+                }}
+              >
+                Descartar y cerrar
+              </button>
+            </div>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

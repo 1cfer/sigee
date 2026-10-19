@@ -1,3 +1,4 @@
+import { GlobalSearch, DemoGuide, ContextHelp } from './Experience';
 import { useToast } from './toast-context';
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
@@ -33,11 +34,18 @@ export function Layout() {
   const reset = useDatabase((s) => s.reset);
   const count = deriveAlerts(db).length;
   const [mobile, setMobile] = useState(false);
+  const [compact, setCompact] = useState(() => {
+    try {
+      return localStorage.getItem('sigee-table-density') === 'compact';
+    } catch {
+      return false;
+    }
+  });
   const [confirm, setConfirm] = useState(false);
   const toast = useToast();
   const title = links.find((l) => location.pathname.startsWith(l.path))?.label ?? 'SIGEE';
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${compact ? 'table-compact' : ''}`}>
       <a className="skip-link" href="#main-content">
         Saltar al contenido
       </a>
@@ -101,13 +109,14 @@ export function Layout() {
               Prototipo independiente <ArrowUpRight size={13} />
             </span>
           </div>
+          <DemoGuide />
           <button className="reset-button" onClick={() => setConfirm(true)}>
             <RotateCcw size={16} />
             Restaurar datos de demostración
           </button>
           <div className="version">
             <span>SIGEE</span>
-            <span>Versión 0.1 · Demo</span>
+            <span>Versión 2.0 · Demo</span>
           </div>
         </div>
       </aside>
@@ -126,6 +135,22 @@ export function Layout() {
             <strong>{title}</strong>
           </div>
           <div className="topbar-right">
+            <GlobalSearch />
+            <ContextHelp />
+            <button
+              className="density-button"
+              aria-pressed={compact}
+              onClick={() => {
+                setCompact(!compact);
+                try {
+                  localStorage.setItem('sigee-table-density', compact ? 'comfortable' : 'compact');
+                } catch {
+                  toast('No se pudo conservar la preferencia.');
+                }
+              }}
+            >
+              {compact ? 'Vista compacta' : 'Vista cómoda'}
+            </button>
             <span className="demo-badge">
               <span className="online-dot" />
               Prototipo demostrativo · Datos simulados
@@ -149,6 +174,11 @@ export function Layout() {
               {getRecoveryNotice()}
             </div>
           )}
+          {useDatabase.getState().error && (
+            <div className="recovery-notice" role="status">
+              {useDatabase.getState().error}
+            </div>
+          )}
           <Outlet />
         </main>
         <footer className="app-footer">
@@ -167,8 +197,9 @@ export function Layout() {
         label="Restaurar datos"
         danger
         onConfirm={() => {
-          reset();
-          toast('Datos de demostración restaurados.');
+          void reset()
+            .then(() => toast('Datos de demostración restaurados.'))
+            .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo restaurar.'));
         }}
       />
     </div>

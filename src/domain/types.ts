@@ -1,5 +1,5 @@
 export type Priority = 'baja' | 'media' | 'alta';
-export type FindingStatus = 'abierto' | 'en progreso' | 'cerrado';
+export type FindingStatus = 'abierto' | 'en progreso' | 'pendiente de verificación' | 'cerrado';
 export type ReviewStatus = 'registrado' | 'pendiente de revisión';
 
 export interface Installation {

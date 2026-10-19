@@ -7,7 +7,10 @@ import { FindingEditor } from './FindingEditor';
 import { ToastProvider } from './ui';
 import { useDatabase } from '../store/useDatabase';
 
-beforeEach(() => useDatabase.getState().reset());
+beforeEach(async () => {
+  await useDatabase.getState().initialize();
+  await useDatabase.getState().reset();
+});
 const renderWithRouter = (element: ReactNode) =>
   render(<RouterProvider router={createMemoryRouter([{ path: '/', element }])} />);
 it('muestra validación accesible y guarda un hallazgo ligado a un activo', async () => {

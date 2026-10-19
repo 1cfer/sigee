@@ -1,353 +1,631 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowDownToLine, ArrowUpRight, Plus } from 'lucide-react';
 import {
-  ArrowDownToLine,
-  ArrowRight,
-  ArrowUpRight,
-  CalendarDays,
-  ChevronRight,
-  CircleAlert,
-  FileCheck2,
-  Plus,
-  ShieldCheck,
-} from 'lucide-react';
-import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 import { useDatabase } from '../store/useDatabase';
-import { deriveAlerts, selectCharts, selectMetrics } from '../domain/selectors';
-import { displayDate, today } from '../domain/dates';
-import { downloadCSV } from '../domain/export';
+import { analyze, defaultFilters, inventoryReasons } from '../domain/analysis';
+import { displayDate, isPast } from '../domain/dates';
+import { entityPath } from '../domain/v2';
 import { FindingEditor } from '../components/FindingEditor';
-import { Badge, EmptyState, InlineLink, PageHeading } from '../components/ui';
+import {
+  AnalysisFilterBar,
+  ReportDialog,
+  TraceDialog,
+  type TraceRow,
+} from '../components/AnalysisTools';
+import { Badge, EmptyState, PageHeading } from '../components/ui';
 
 export function Dashboard() {
   const db = useDatabase((s) => s.db);
-  const [create, setCreate] = useState(false);
-  const metrics = useMemo(() => selectMetrics(db), [db]);
-  const charts = useMemo(() => selectCharts(db), [db]);
-  const alerts = useMemo(() => deriveAlerts(db), [db]);
-  const activity = [...db.findingEvents].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 4);
-  const total = db.findings.length;
+  const [filters, setFilters] = useState(defaultFilters),
+    [tab, setTab] = useState('general'),
+    [create, setCreate] = useState(false),
+    [report, setReport] = useState(false),
+    [trace, setTrace] = useState<{ title: string; rows: TraceRow[] }>();
+  const a = useMemo(() => analyze(db, filters), [db, filters]);
+  const findingRows = (items: typeof db.findings): TraceRow[] =>
+    items.map((f) => ({
+      id: f.id,
+      kind: 'finding',
+      code: f.code,
+      title: f.title,
+      status: f.status,
+      responsible: f.responsible,
+      date: f.dueDate,
+      asset: db.assets.find((r) => r.id === f.assetId)?.code,
+    }));
+  const assetRows = (items: typeof db.assets): TraceRow[] =>
+    items.map((r) => ({
+      id: r.id,
+      kind: 'asset',
+      code: r.code,
+      title: r.name,
+      status: r.operationalStatus,
+      responsible: r.responsible,
+    }));
+  const ppeRows = (items: typeof db.ppe): TraceRow[] =>
+    items.map((r) => ({
+      id: r.id,
+      kind: 'ppe',
+      code: r.code,
+      title: `${r.type} · ${r.available} disponibles / ${r.unavailable} no disponibles`,
+      status: r.inspectionStatus,
+      date: r.nextInspection,
+    }));
+  const documentRows = (
+    items: ((typeof db.studies)[number] | (typeof db.documents)[number])[],
+  ): TraceRow[] =>
+    items.map((r) => ({
+      id: r.id,
+      kind: 'reference' in r ? 'study' : 'document',
+      code: 'reference' in r ? r.reference : r.code,
+      title: r.title,
+      status: r.documentState,
+      responsible: r.responsible,
+      date: 'nextReview' in r ? r.nextReview : r.reviewDate,
+    }));
+  const show = (title: string, rows: TraceRow[]) => setTrace({ title, rows });
+  const metric = (key: string, label: string, value: number, rows: TraceRow[], sub: string) => (
+    <button className={`metric metric-${key}`} key={key} onClick={() => show(label, rows)}>
+      <span className="metric-label">
+        {label}
+        <ArrowUpRight size={15} />
+      </span>
+      <strong data-testid={`metric-${key}`}>{String(value).padStart(2, '0')}</strong>
+      <span className="metric-sub">{sub}</span>
+    </button>
+  );
+  const distribution = (title: string, items: { label: string; rows: TraceRow[] }[]) => (
+    <section className="panel">
+      <div className="panel-header">
+        <h2>{title}</h2>
+      </div>
+      <div className="distribution-list">
+        {items.map((item) => (
+          <button key={item.label} onClick={() => show(`${title} · ${item.label}`, item.rows)}>
+            <span>{item.label}</span>
+            <strong>{item.rows.length}</strong>
+            <span className="distribution-track">
+              <i
+                style={{
+                  width: `${(item.rows.length / Math.max(1, ...items.map((i) => i.rows.length))) * 100}%`,
+                }}
+              />
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+  const alerts = a.db.alertHistory.filter((r) => r.status !== 'resuelta');
+  const activeAssets = a.db.assets.filter((r) => !r.archived);
+  const pendingAssets = activeAssets.filter((r) => a.open.some((f) => f.assetId === r.id));
   return (
     <>
       <PageHeading
-        eyebrow="01 / VISIÓN GENERAL"
+        eyebrow="01 / INFORMACIÓN PARA EL SEGUIMIENTO"
         title="Centro de control"
-        description="Una visión conectada de tus registros y acciones de seguimiento."
+        description="Registros conectados, indicadores explicables y decisiones de seguimiento con contexto."
         actions={
           <>
-            <button
-              className="button secondary"
-              onClick={() =>
-                downloadCSV(
-                  'sigee-indicadores.csv',
-                  ['Indicador', 'Cantidad', 'Datos'],
-                  [
-                    ['Activos registrados', metrics.assets, 'Simulados'],
-                    ['Hallazgos abiertos', metrics.open, 'Simulados'],
-                    ['Prioridad alta', metrics.high, 'Simulados'],
-                    ['Hallazgos vencidos', metrics.overdue, 'Simulados'],
-                    ['Inspecciones pendientes', metrics.inspections, 'Simulados'],
-                    ['Revisiones pendientes', metrics.reviews, 'Simulados'],
-                  ],
-                )
-              }
-            >
+            <button className="button secondary" onClick={() => setReport(true)}>
               <ArrowDownToLine size={16} />
-              Exportar resumen
+              Generar informe
             </button>
             <button className="button primary" onClick={() => setCreate(true)}>
-              <Plus size={17} />
+              <Plus size={16} />
               Crear hallazgo
             </button>
           </>
         }
       />
+      <div className="tabs dashboard-tabs" role="group" aria-label="Vistas del centro de control">
+        {[
+          ['general', 'Visión general'],
+          ['hallazgos', 'Hallazgos'],
+          ['recursos', 'Activos y EPP'],
+          ['documental', 'Estudios y documentos'],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            className={tab === value ? 'active' : ''}
+            onClick={() => setTab(value!)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <AnalysisFilterBar value={filters} onChange={setFilters} />
       <div className="section-caption">
         <span>
-          <span className="online-dot" />
-          Resumen del seguimiento
+          <span className="online-dot" /> Selección actual ·{' '}
+          {filters.period === 'all'
+            ? 'Todo el historial'
+            : `${displayDate(filters.start)} — ${displayDate(filters.end)}`}
         </span>
-        <span>
-          <CalendarDays size={14} />
-          {displayDate(today())}
-        </span>
+        <span>Selecciona una cifra para consultar sus registros</span>
       </div>
       <section className="metrics-strip" aria-label="Indicadores calculados">
-        {[
-          {
-            key: 'open',
-            label: 'Hallazgos abiertos',
-            value: metrics.open,
-            sub: 'Incluye registros en progreso',
-            to: '/hallazgos?estado=pendientes',
-          },
-          {
-            key: 'high',
-            label: 'Prioridad alta',
-            value: metrics.high,
-            sub: 'Pendientes de cierre',
-            to: '/hallazgos?prioridad=alta&estado=pendientes',
-          },
-          {
-            key: 'overdue',
-            label: 'Hallazgos vencidos',
-            value: metrics.overdue,
-            sub: 'Fecha objetivo superada',
-            to: '/hallazgos?estado=vencidos',
-          },
-          {
-            key: 'assets',
-            label: 'Activos registrados',
-            value: metrics.assets,
-            sub: `${db.installations.length} instalaciones ficticias`,
-            to: '/activos',
-          },
-        ].map((m, i) => (
-          <Link to={m.to} className={`metric metric-${m.key}`} key={m.key}>
-            <div className="metric-label">
-              {m.label}
-              <ArrowUpRight size={15} />
-            </div>
-            <strong data-testid={`metric-${m.key}`}>
-              {m.value.toString().padStart(2, '0')}
-              {i === 0 && <span className="metric-unit">/ {total}</span>}
-            </strong>
-            <span className="metric-sub">
-              <span className={`metric-dot dot-${i}`} />
-              {m.sub}
-            </span>
-          </Link>
-        ))}
+        {metric(
+          'open',
+          'Hallazgos abiertos',
+          a.open.length,
+          findingRows(a.open),
+          'Incluye progreso y verificación',
+        )}
+        {metric(
+          'high',
+          'Prioridad alta',
+          a.high.length,
+          findingRows(a.high),
+          'Pendientes de cierre',
+        )}
+        {metric(
+          'overdue',
+          'Hallazgos vencidos',
+          a.overdue.length,
+          findingRows(a.overdue),
+          'Fecha objetivo superada',
+        )}
+        {metric(
+          'assets',
+          'Activos registrados',
+          a.db.assets.length,
+          assetRows(a.db.assets),
+          'Estado actual por instalación',
+        )}
       </section>
       <div className="review-strip">
         <span className="tiny-label">TAMBIÉN REQUIEREN SEGUIMIENTO</span>
-        <Link to="/epp?pendientes=1">
-          <ShieldCheck size={17} />
-          <strong>{metrics.inspections}</strong> inspecciones EPP pendientes
-          <ChevronRight size={15} />
-        </Link>
-        <Link to="/estudios-documentos?pendientes=1">
-          <FileCheck2 size={17} />
-          <strong>{metrics.reviews}</strong> documentos y estudios por revisar
-          <ChevronRight size={15} />
-        </Link>
+        <button onClick={() => show('Inspecciones EPP pendientes', ppeRows(a.inspections))}>
+          <strong>{a.inspections.length}</strong> inspecciones EPP pendientes{' '}
+          <ArrowUpRight size={14} />
+        </button>
+        <button onClick={() => show('Estudios y documentos por revisar', documentRows(a.reviews))}>
+          <strong>{a.reviews.length}</strong> estudios y documentos por revisar{' '}
+          <ArrowUpRight size={14} />
+        </button>
       </div>
-      <div className="dashboard-main-grid">
-        <section className="panel trend-panel">
-          <div className="panel-header">
-            <div>
-              <p className="tiny-label">EVOLUCIÓN DE REGISTROS</p>
-              <h2>El seguimiento en el tiempo</h2>
-            </div>
-            <Badge>Últimos 6 meses</Badge>
-          </div>
-          <div className="chart-legend">
-            <span>
-              <i style={{ background: 'var(--teal)' }} />
-              Creados
-            </span>
-            <span>
-              <i style={{ background: '#8b9cac' }} />
-              Cerrados
-            </span>
-          </div>
-          <div
-            className="trend-chart"
-            role="img"
-            aria-label={`Tendencia mensual de hallazgos: ${charts.trend.map((t) => `${t.name}: ${t.creados} creados, ${t.cerrados} cerrados`).join('; ')}`}
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={charts.trend} margin={{ top: 10, right: 12, left: -28, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#087f8c" stopOpacity={0.13} />
-                    <stop offset="100%" stopColor="#087f8c" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="#e9edf0" strokeDasharray="3 5" vertical={false} />
-                <XAxis
-                  dataKey="name"
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12, fill: '#617480' }}
-                  dy={8}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 11, fill: '#617480' }}
-                />
-                <Tooltip
-                  labelFormatter={(label) => `Mes: ${label}`}
-                  contentStyle={{ borderRadius: 8, border: '1px solid #e5ebf0', fontSize: 12 }}
-                />
-                <Area
-                  name="Creados"
-                  type="monotone"
-                  dataKey="creados"
-                  stroke="#087f8c"
-                  fill="url(#trendFill)"
-                  strokeWidth={2.5}
-                  isAnimationActive={false}
-                />
-                <Area
-                  name="Cerrados"
-                  type="monotone"
-                  dataKey="cerrados"
-                  stroke="#8b9cac"
-                  fill="transparent"
-                  strokeWidth={1.5}
-                  strokeDasharray="4 4"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-          <p className="panel-footnote">Fechas de creación y cierre de los registros simulados.</p>
-        </section>
-        <section className="panel attention-panel">
-          <div className="panel-header">
-            <div>
-              <p className="tiny-label">PARA TU REVISIÓN</p>
-              <h2>Alertas de seguimiento</h2>
-            </div>
-            <span className="count-circle">{alerts.length}</span>
-          </div>
-          <div className="alert-preview-list">
-            {alerts.slice(0, 3).map((a) => (
-              <Link to={a.path} key={a.id} className="alert-preview">
-                <span className={`alert-symbol ${a.severity === 'prioritaria' ? 'red' : 'amber'}`}>
-                  <CircleAlert size={17} />
-                </span>
+      {(tab === 'general' || tab === 'hallazgos') && (
+        <>
+          <div className="dashboard-main-grid">
+            <section className="panel trend-panel">
+              <div className="panel-header">
                 <div>
-                  <span className="tiny-label">
-                    {a.severity === 'prioritaria' ? 'PRIORIDAD ALTA' : 'FECHA SUPERADA'}
-                  </span>
-                  <h3>{a.title}</h3>
-                  <p>{a.description}</p>
+                  <p className="tiny-label">EVOLUCIÓN DE REGISTROS</p>
+                  <h2>Hallazgos creados y cerrados por mes</h2>
                 </div>
-                <ArrowUpRight size={15} />
-              </Link>
-            ))}
-            {!alerts.length && (
-              <EmptyState
-                title="Sin alertas pendientes"
-                description="Las reglas no detectan seguimientos por fecha o prioridad."
-              />
+                <Badge>Unidades: registros</Badge>
+              </div>
+              <div
+                className="trend-chart"
+                role="img"
+                aria-label={a.trend
+                  .map((t) => `${t.name}: ${t.creados} creados, ${t.cerrados} cerrados`)
+                  .join('; ')}
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={a.trend} margin={{ left: -20, right: 16, top: 12, bottom: 0 }}>
+                    <CartesianGrid stroke="#e9edf0" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar
+                      dataKey="creados"
+                      name="Creados"
+                      fill="#087f8c"
+                      radius={[3, 3, 0, 0]}
+                      isAnimationActive={false}
+                    />
+                    <Bar
+                      dataKey="cerrados"
+                      name="Cerrados"
+                      fill="#8194a3"
+                      radius={[3, 3, 0, 0]}
+                      isAnimationActive={false}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="panel-footnote">
+                Eventos de creación y cierre registrados; cada mes representa una cantidad exacta.
+              </p>
+            </section>
+            {tab === 'general' ? (
+              <section className="panel attention-panel">
+                <div className="panel-header">
+                  <h2>Alertas en la selección</h2>
+                  <span className="count-circle">{alerts.length}</span>
+                </div>
+                <div className="related-list">
+                  {alerts.slice(0, 3).map((r) => (
+                    <Link key={r.id} to={r.path}>
+                      <div>
+                        <Badge tone={r.severity === 'prioritaria' ? 'red' : 'amber'}>
+                          {r.status}
+                        </Badge>
+                        <h3>{r.title}</h3>
+                        <p>{r.description}</p>
+                      </div>
+                      <ArrowUpRight size={16} />
+                    </Link>
+                  ))}
+                </div>
+                {!alerts.length && (
+                  <EmptyState
+                    title="Sin alertas en la selección"
+                    description="Puedes ampliar el período para revisar otros registros."
+                  />
+                )}
+                <Link className="panel-bottom-link" to="/alertas">
+                  Abrir centro de alertas <ArrowUpRight size={16} />
+                </Link>
+              </section>
+            ) : (
+              <section className="panel">
+                <div className="panel-header">
+                  <h2>Pendientes al cierre de cada mes</h2>
+                </div>
+                <div
+                  className="trend-chart"
+                  role="img"
+                  aria-label={a.trend
+                    .map((t) => `${t.name}: ${t.pendientes} pendientes`)
+                    .join('; ')}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={a.trend} margin={{ left: -20, right: 16, top: 12, bottom: 0 }}>
+                      <CartesianGrid vertical={false} stroke="#e9edf0" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Line
+                        name="Pendientes"
+                        type="stepAfter"
+                        dataKey="pendientes"
+                        stroke="#102c46"
+                        strokeWidth={2}
+                        dot
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="panel-footnote">
+                  Incluye el arrastre anterior al período y los estados registrados en el historial.
+                </p>
+              </section>
             )}
           </div>
-          <Link className="panel-bottom-link" to="/alertas">
-            Ver todas las alertas
-            <ArrowRight size={16} />
-          </Link>
-        </section>
-      </div>
-      <div className="dashboard-bottom-grid">
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="tiny-label">DISTRIBUCIÓN</p>
-              <h2>Estado de los hallazgos</h2>
-            </div>
-          </div>
-          <div className="segmented-bar" aria-hidden="true">
-            {charts.statuses.map((s, i) => (
-              <span key={s.name} className={`segment-${i}`} style={{ flex: s.value }} />
-            ))}
-          </div>
-          <div className="status-breakdown">
-            {charts.statuses.map((s, i) => (
-              <div key={s.name}>
-                <span>
-                  <i className={`segment-${i}`} />
-                  {s.name}
-                </span>
-                <strong>
-                  {s.value}
-                  <small>{total ? Math.round((s.value / total) * 100) : 0}%</small>
-                </strong>
-              </div>
-            ))}
-          </div>
-          <div className="priority-summary">
-            <span className="tiny-label">ABIERTOS POR PRIORIDAD</span>
-            {charts.priorities.map((p) => (
-              <span key={p.name}>
-                {p.name} <strong>{p.value}</strong>
-              </span>
-            ))}
-          </div>
-        </section>
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="tiny-label">INSTALACIONES FICTICIAS</p>
-              <h2>Hallazgos pendientes</h2>
-            </div>
-          </div>
-          <div className="installation-bars">
-            {charts.installations.map((i, index) => (
-              <Link to={`/activos?instalacion=${db.installations[index]?.id}`} key={i.name}>
-                <div>
-                  <span>{i.name}</span>
-                  <strong>{i.value}</strong>
+          {tab === 'hallazgos' && (
+            <>
+              <section className="panel table-panel">
+                <div className="panel-header">
+                  <h2>Detalle mensual · abrir registros</h2>
+                  <p className="muted">
+                    Promedio de cierre:{' '}
+                    {a.averageClosure === null
+                      ? 'Sin datos'
+                      : `${a.averageClosure.toFixed(1)} días (${a.db.findings.filter((f) => f.closedAt).length} cierres)`}
+                  </p>
                 </div>
-                <div className="bar-track">
-                  <span
-                    style={{
-                      width: `${(i.value / Math.max(1, ...charts.installations.map((v) => v.value))) * 100}%`,
-                    }}
-                  />
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Mes</th>
+                        <th>Creados</th>
+                        <th>Cerrados</th>
+                        <th>Pendientes al cierre</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {a.trend.map((t) => (
+                        <tr key={t.month}>
+                          <td>{t.name}</td>
+                          <td>
+                            <button
+                              className="text-link"
+                              onClick={() =>
+                                show(`Creados · ${t.name}`, findingRows(t.createdRecords))
+                              }
+                            >
+                              {t.creados}
+                            </button>
+                          </td>
+                          <td>
+                            <button
+                              className="text-link"
+                              onClick={() =>
+                                show(`Cerrados · ${t.name}`, findingRows(t.closedRecords))
+                              }
+                            >
+                              {t.cerrados}
+                            </button>
+                          </td>
+                          <td>
+                            <button
+                              className="text-link"
+                              onClick={() =>
+                                show(
+                                  `Pendientes al cierre · ${t.name}`,
+                                  findingRows(t.pendingRecords),
+                                )
+                              }
+                            >
+                              {t.pendientes}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </Link>
-            ))}
+              </section>
+            </>
+          )}
+          <div className="dashboard-bottom-grid">
+            {distribution(
+              'Por estado',
+              ['abierto', 'en progreso', 'pendiente de verificación', 'cerrado'].map((label) => ({
+                label,
+                rows: findingRows(a.db.findings.filter((r) => r.status === label)),
+              })),
+            )}
+            {distribution(
+              'Prioridad de pendientes',
+              ['alta', 'media', 'baja'].map((label) => ({
+                label,
+                rows: findingRows(a.open.filter((r) => r.priority === label)),
+              })),
+            )}
+            {distribution(
+              'Pendientes por instalación',
+              a.db.installations.map((i) => ({
+                label: i.name,
+                rows: findingRows(
+                  a.open.filter((r) =>
+                    db.assets.some(
+                      (asset) => asset.id === r.assetId && asset.installationId === i.id,
+                    ),
+                  ),
+                ),
+              })),
+            )}
           </div>
-          <div className="panel-inline-link">
-            <InlineLink to="/activos">Explorar activos</InlineLink>
-          </div>
-        </section>
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="tiny-label">TRAZABILIDAD</p>
+        </>
+      )}
+      {tab === 'general' && (
+        <div className="dashboard-main-grid">
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Próximos compromisos</h2>
+            </div>
+            <div className="related-list">
+              {a.open
+                .slice()
+                .sort((x, y) => x.dueDate.localeCompare(y.dueDate))
+                .slice(0, 4)
+                .map((f) => (
+                  <Link key={f.id} to={entityPath('finding', f.id)}>
+                    <div>
+                      <span className="table-sub">
+                        {f.code} · {f.responsible}
+                      </span>
+                      <h3>{f.title}</h3>
+                      <p>{displayDate(f.dueDate)}</p>
+                    </div>
+                    <Badge tone={isPast(f.dueDate) ? 'amber' : 'neutral'}>
+                      {isPast(f.dueDate) ? 'Vencido' : 'Programado'}
+                    </Badge>
+                  </Link>
+                ))}
+            </div>
+          </section>
+          <section className="panel">
+            <div className="panel-header">
               <h2>Actividad reciente</h2>
             </div>
+            <div className="activity-list">
+              {a.db.events
+                .slice()
+                .sort((x, y) => y.at.localeCompare(x.at))
+                .slice(0, 5)
+                .map((e) => (
+                  <Link key={e.id} to={entityPath(e.entityType, e.entityId)}>
+                    <span className="activity-dot" />
+                    <div>
+                      <p>{e.description}</p>
+                      <span>
+                        {e.action} · {displayDate(e.at)}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+            </div>
+          </section>
+        </div>
+      )}
+      {tab === 'recursos' && (
+        <>
+          <div className="dashboard-bottom-grid">
+            {distribution(
+              'Activos por instalación',
+              a.db.installations.map((i) => ({
+                label: i.name,
+                rows: assetRows(a.db.assets.filter((r) => r.installationId === i.id)),
+              })),
+            )}
+            {distribution('Seguimiento de activos', [
+              { label: 'Con hallazgos pendientes', rows: assetRows(pendingAssets) },
+              {
+                label: 'Sin hallazgos pendientes',
+                rows: assetRows(activeAssets.filter((r) => !pendingAssets.includes(r))),
+              },
+            ])}
+            <section className="panel">
+              <div className="panel-header">
+                <h2>Estado actual del inventario</h2>
+              </div>
+              <div className="distribution-list">
+                {[
+                  [
+                    'Disponibles',
+                    a.db.ppe.reduce((s, p) => s + p.available, 0),
+                    a.db.ppe.filter((p) => p.available > 0),
+                  ],
+                  [
+                    'Asignadas',
+                    a.db.assignments
+                      .filter((r) => !r.returnedAt)
+                      .reduce((s, r) => s + r.quantity, 0),
+                    a.db.ppe.filter((p) =>
+                      a.db.assignments.some((r) => r.ppeId === p.id && !r.returnedAt),
+                    ),
+                  ],
+                  [
+                    'No disponibles',
+                    a.db.ppe.reduce((s, p) => s + p.unavailable, 0),
+                    a.db.ppe.filter((p) => p.unavailable > 0),
+                  ],
+                ].map(([label, count, items]) => (
+                  <button
+                    key={String(label)}
+                    onClick={() =>
+                      show(
+                        `EPP · ${label} (unidades por referencia)`,
+                        ppeRows(items as typeof db.ppe),
+                      )
+                    }
+                  >
+                    <span>{String(label)}</span>
+                    <strong>{String(count)}</strong>
+                  </button>
+                ))}
+              </div>
+            </section>
           </div>
-          <div className="activity-list">
-            {activity.map((e) => {
-              const f = db.findings.find((f) => f.id === e.findingId);
-              return (
-                <Link to={`/hallazgos?registro=${e.findingId}`} key={e.id}>
-                  <span className="activity-dot" />
-                  <div>
-                    <p>{e.kind === 'comentario' ? 'Nuevo comentario' : e.text}</p>
-                    <span>
-                      {f?.code} · {displayDate(e.at)}
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
+          {distribution(
+            'No disponibles por motivo',
+            Object.entries(
+              a.db.ppe.reduce<Record<string, number>>((sum, p) => {
+                for (const [r, n] of Object.entries(inventoryReasons(db, p.id)))
+                  sum[r] = (sum[r] ?? 0) + n;
+                return sum;
+              }, {}),
+            ).map(([reason, count]) => ({
+              label: `${reason} · ${count} unidades`,
+              rows: ppeRows(a.db.ppe.filter((p) => (inventoryReasons(db, p.id)[reason] ?? 0) > 0)),
+            })),
+          )}
+        </>
+      )}
+      {tab === 'documental' && (
+        <>
+          <div className="dashboard-bottom-grid">
+            {distribution('Registros documentales', [
+              { label: 'Estudios', rows: documentRows(a.db.studies) },
+              { label: 'Documentos', rows: documentRows(a.db.documents) },
+            ])}
+            {distribution(
+              'Documentos por categoría',
+              [...new Set(a.db.documents.map((d) => d.type))].map((label) => ({
+                label,
+                rows: documentRows(a.db.documents.filter((r) => r.type === label)),
+              })),
+            )}
+            {distribution('Programación de revisiones', [
+              {
+                label: 'Vencidas',
+                rows: documentRows([
+                  ...a.db.studies.filter((r) => isPast(r.nextReview)),
+                  ...a.db.documents.filter((r) => isPast(r.reviewDate)),
+                ]),
+              },
+              {
+                label: 'Sin fecha programada',
+                rows: documentRows([
+                  ...a.db.studies.filter((r) => !r.nextReview),
+                  ...a.db.documents.filter((r) => !r.reviewDate),
+                ]),
+              },
+              { label: 'Pendientes de revisión', rows: documentRows(a.reviews) },
+            ])}
           </div>
-        </section>
-      </div>
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Actividad documental</h2>
+            </div>
+            <div className="activity-list">
+              {a.db.events
+                .filter((e) => e.entityType === 'study' || e.entityType === 'document')
+                .sort((x, y) => y.at.localeCompare(x.at))
+                .slice(0, 8)
+                .map((e) => (
+                  <Link key={e.id} to={entityPath(e.entityType, e.entityId)}>
+                    <div>
+                      <p>
+                        {e.action} · {e.description}
+                      </p>
+                      <span>
+                        {displayDate(e.at)} · {e.actor}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+            </div>
+          </section>
+        </>
+      )}
       <div className="context-note">
-        <span className="context-note-mark">i</span>
-        <p>
-          Los indicadores reflejan registros administrativos simulados. Las alertas orientan el
-          seguimiento y no autorizan trabajos.
-        </p>
+        Los indicadores representan registros administrativos simulados.{' '}
+        {a.db.studies.length + a.db.documents.length === 0
+          ? 'El período seleccionado no contiene fechas originales de estudios o documentos. Amplía el período para incluirlos.'
+          : 'Las revisiones y el inventario requieren validación profesional fuera de este prototipo.'}
       </div>
-      {create && <FindingEditor onClose={() => setCreate(false)} />}
+      <section className="quality-note">
+        <h3>Calidad de datos</h3>
+        <p>
+          {
+            [...a.db.studies, ...a.db.documents].filter(
+              (r) => !db.attachments.some((file) => file.entityId === r.id),
+            ).length
+          }{' '}
+          registros documentales sin archivo. {a.db.studies.filter((r) => !r.nextReview).length}{' '}
+          estudios sin próxima revisión. {a.db.ppe.filter((r) => !r.lastInspection).length}{' '}
+          referencias EPP sin inspección formal registrada.
+        </p>
+        <button
+          className="text-link"
+          onClick={() =>
+            show(
+              'Registros documentales sin archivo',
+              documentRows(
+                [...a.db.studies, ...a.db.documents].filter(
+                  (r) => !db.attachments.some((file) => file.entityId === r.id),
+                ),
+              ),
+            )
+          }
+        >
+          Revisar registros
+        </button>
+      </section>
+      {create && <FindingEditor onClose={() => setCreate(false)} />}{' '}
+      {report && <ReportDialog filters={filters} onClose={() => setReport(false)} />}{' '}
+      {trace && <TraceDialog {...trace} onClose={() => setTrace(undefined)} />}
     </>
   );
 }

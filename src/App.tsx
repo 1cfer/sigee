@@ -1,4 +1,4 @@
-import { Component, Suspense, lazy, type ReactNode } from 'react';
+import { Component, Suspense, lazy, useEffect, type ReactNode } from 'react';
 import {
   createBrowserRouter,
   createRoutesFromElements,
@@ -8,6 +8,7 @@ import {
 } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { EmptyState, InlineLink, ToastProvider } from './components/ui';
+import { useDatabase } from './store/useDatabase';
 import { Dashboard } from './pages/Dashboard';
 
 const Assets = lazy(() => import('./pages/Assets').then((m) => ({ default: m.Assets })));
@@ -63,6 +64,32 @@ const router = createBrowserRouter(
   ),
 );
 export function App() {
+  const { ready, loadingFiles, error, initialize } = useDatabase();
+  useEffect(() => {
+    void initialize();
+  }, [initialize]);
+  useEffect(() => {
+    if (!ready || loadingFiles) return;
+    const timer = window.setInterval(() => {
+      void useDatabase
+        .getState()
+        .refreshAlerts()
+        .catch(() => {});
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, [ready, loadingFiles]);
+  if (!ready || loadingFiles)
+    return (
+      <div className="loading-state" role="status">
+        <h1>SIGEE</h1>
+        <p>{error || 'Preparando tus registros y archivos…'}</p>
+        {error && (
+          <button className="button primary" onClick={() => void initialize()}>
+            Reintentar carga
+          </button>
+        )}
+      </div>
+    );
   return (
     <ErrorBoundary>
       <ToastProvider>

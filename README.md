@@ -1,78 +1,21 @@
-# SIGEE
+# SIGEE V2
 
-Sistema Integrado de Gestión de Seguridad Eléctrica. Prototipo independiente para demostrar cómo conectar registros, indicadores y acciones de seguimiento. **Todos los datos son ficticios. No es una aplicación oficial ni una solución validada por ISA.**
+Sistema Integrado de Gestión de Seguridad Eléctrica. Prototipo independiente de **1cfer** para conectar activos, estudios, hallazgos, inventario e indicadores. Todos los datos iniciales y los PDF de ejemplo son ficticios. No es una aplicación oficial ni validada por ISA o Intercolombia.
 
 > Prototipo demostrativo con datos simulados. No apto para decisiones operativas de seguridad eléctrica.
 
-## Qué incluye
+## Ejecutar
 
-- **Centro de control**: seis indicadores calculados, tendencia mensual de creación/cierre, distribución por estado, prioridad e instalación, alertas y actividad.
-- **Activos eléctricos**: búsqueda, filtros y ordenación; fichas con relaciones por ID a estudios, documentos, asignaciones EPP, hallazgos, avisos y eventos.
-- **Hallazgos**: crear, consultar, editar, cambiar estado, asignar responsable, comentar y eliminar con confirmación explícita del historial que también se elimina. Exportación CSV del listado filtrado.
-- **Inventario EPP**: editar cantidades y metadatos, registrar asignaciones ficticias, devolver unidades y seguir inspecciones.
-- **Estudios y documentos**: dos pestañas con búsqueda, pendientes, detalle y edición de metadatos. Sin archivos técnicos ficticios ni certificaciones.
-- **Alertas**: reglas derivadas del estado, filtros por origen y severidad y enlace directo al registro que las genera.
-
-Los seis módulos comparten un único store. Los cambios persisten en el navegador; las alertas y métricas se recalculan, no se guardan por separado. La aplicación abre en `/dashboard`, sin inicio de sesión ficticio.
-
-## Tecnologías y requisitos
-
-React, TypeScript estricto, Vite, React Router, Tailwind CSS y tokens CSS, Radix Dialog, Lucide, Recharts, React Hook Form, Zod, Zustand y date-fns. Inter se sirve desde los archivos instalados; la demostración no necesita APIs, fuentes remotas ni servicios corporativos.
-
-Node **24.x** y npm, tanto localmente como en Vercel. Para E2E se necesita Chromium. Las versiones exactas están en `package-lock.json`.
-
-## Instalación y ejecución
-
-Desde la raíz del repositorio:
+Requiere Node **24.x**, npm y un navegador moderno. Desde la raíz:
 
 ```sh
 npm ci
-npm run dev
+npm run dev -- --host 0.0.0.0
 ```
 
-En esta nube el repositorio está en `/workspace/sigee`; utiliza `npm ci --cache /workspace/.cache/npm` si la caché de usuario no es escribible. Vite escucha en el puerto 5173 por defecto. El servidor no tiene autenticación; úsalo solo en tu entorno de desarrollo.
+Abre `http://localhost:5173/dashboard` en Chrome o Edge cuando ejecutes el proyecto en tu computador. En esta nube la carpeta es `/workspace/sigee` y se puede usar `npm ci --cache /workspace/.cache/npm`. La dirección del contenedor no es una URL pública.
 
 ```sh
-npm run typecheck
-npm run lint
-npm test
-npm run test:e2e
-npm run build
-npm run preview -- --port 4173
-```
-
-Playwright inicia Vite automáticamente, o reutiliza el servidor de desarrollo existente fuera de CI. En esta nube usa `/usr/bin/chromium`. En otro equipo, define `SIGEE_CHROMIUM_PATH` con la ruta a un Chromium compatible. Las trazas y capturas de fallos quedan en `test-results/`, que no se versiona. `npm run format:check` verifica el formato.
-
-`dist/` contiene la compilación. Un servidor de producción debe redirigir rutas de la SPA a `index.html`. Publicar o desplegar requiere una acción separada; iniciar Vite no publica el proyecto.
-
-## Despliegue en Vercel
-
-El proyecto es una SPA estática. `vercel.json` define el framework Vite, instalación con `npm ci`, compilación con `npm run build`, salida `dist` y la reescritura de las rutas de React Router a `/index.html`. Vite utiliza `base: '/'`; los archivos compilados están en `/assets/`. No se necesitan variables de entorno, secretos, funciones de servidor ni una base de datos para la demostración.
-
-1. En Vercel, crea un proyecto e importa el repositorio de GitHub **`1cfer/sigee`**.
-2. Selecciona la rama **`feat/vercel-production`** para esta versión. Si posteriormente se integra en otra rama, selecciona esa rama como **Production Branch** en la configuración Git del proyecto.
-3. Usa estos valores; el archivo `vercel.json` proporciona los comandos y el directorio de salida:
-
-| Ajuste                | Valor                      |
-| --------------------- | -------------------------- |
-| Root Directory        | Raíz del repositorio (`.`) |
-| Framework Preset      | Vite                       |
-| Node.js Version       | 24.x                       |
-| Install Command       | `npm ci`                   |
-| Build Command         | `npm run build`            |
-| Output Directory      | `dist`                     |
-| Environment Variables | Ninguna                    |
-
-4. Despliega y abre la URL HTTPS que genere Vercel en Chrome o Edge. La ruta `/` abre el dashboard.
-5. Abre y recarga directamente `/dashboard`, `/activos/asset-1`, `/hallazgos`, `/epp`, `/estudios-documentos` y `/alertas`. También deben conservarse los enlaces con query, como `/hallazgos?registro=finding-1`.
-6. Repite el guion de demostración del final de este README. Comprueba en las herramientas del navegador que los recursos JS, CSS, las fuentes y `favicon.svg` responden correctamente.
-
-No configures `/workspace/sigee` como Root Directory en Vercel: esa ruta solo pertenece al entorno de desarrollo en la nube. `dist`, `node_modules` y `.vercel` no se versionan; Vercel los genera a partir del código y el lockfile.
-
-Para verificar el mismo build antes de publicarlo:
-
-```sh
-npm ci
 npm run typecheck
 npm run lint
 npm test
@@ -80,71 +23,90 @@ npm run build
 npm run preview -- --port 4173 --strictPort
 ```
 
-En otra terminal, ejecuta la suite completa contra los archivos compilados:
+El build queda en `dist/`. Para probar los archivos compilados, con el servidor anterior en otra terminal:
 
 ```sh
 SIGEE_BASE_URL=http://127.0.0.1:4173 npm run test:e2e
 ```
 
-La prueba de producción abre y recarga todas las rutas, comprueba enlaces a registros, verifica los recursos compilados y sus tipos MIME, y detecta errores de consola y peticiones fallidas. La suite también ejecuta el recorrido de creación y cierre de hallazgos. Esta validación local no sustituye la comprobación de la URL real después del primer despliegue en Vercel.
+Playwright usa `/usr/bin/chromium` en esta nube. En otro equipo configura `SIGEE_CHROMIUM_PATH` con un Chromium instalado. Sin `SIGEE_BASE_URL`, Playwright inicia Vite automáticamente. `npm run format:check` comprueba Prettier. Capturas y trazas quedan en `test-results/`, sin versionarse.
 
-Cada dominio y navegador conserva sus propios datos de demostración. Los cambios guardados en localhost no aparecen en el dominio de Vercel; el nuevo dominio inicia su propio dataset. Un redeploy en el mismo origen conserva localStorage mientras su versión siga siendo compatible. El aviso de datos simulados y las limitaciones operativas siguen aplicándose a la versión pública.
+## Flujos implementados
 
-## Organización
+| Módulo                | Operaciones reales                                                                                                                                                                                                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Centro de control     | Cuatro vistas, períodos de 3/6/12 meses, mes, trimestre, semestre, año y rango; filtros por instalación, estado y prioridad; indicadores con sus registros exactos; barras de creación/cierre y pendientes históricos; informes PDF y Excel.                                          |
+| Activos eléctricos    | Crear y editar instalaciones y activos, separar estado administrativo y operativo declarado, archivar/reactivar sin borrar relaciones, ficha 360° con enlaces a registros asociados e historial.                                                                                      |
+| Hallazgos             | Crear, editar, comentar, adjuntar PDF o imágenes, pasar por verificación y cerrar con acción correctiva y justificación. Conservar responsable, fecha de cierre y eventos al reabrir o archivar. CSV complementario del listado filtrado.                                             |
+| Inventario EPP        | Crear referencias, adjuntar imágenes, registrar entradas no disponibles, inspecciones y reinspecciones, cambios de estado, correcciones justificadas y bajas. Asignar a activos con responsable y actividad; devolver con condición de recepción y conservar la asignación histórica. |
+| Estudios y documentos | Fichas de consulta con pestañas, campos técnicos declarados e ilustrativos, PDF reales, descarga, carga de versiones, revisiones formales, fechas independientes y archivo administrativo.                                                                                            |
+| Alertas               | Generación por condición, reconocimiento, resolución automática cuando desaparece la causa, reactivación e historial persistente. Reconocer no elimina ni resuelve el aviso.                                                                                                          |
+
+También incluye búsqueda global, actividad transversal, ayuda de conceptos, recorrido guiado opcional, avisos de calidad de datos y densidad de tablas persistente. Las operaciones confirman el guardado después de que finaliza la transacción de IndexedDB. Los formularios principales protegen borradores; los formularios de operaciones advierten al cerrar o cambiar su sección.
+
+El [guion de demostración](DEMO_GUIDE.md) cubre el recorrido en aproximadamente cinco minutos. [CHANGELOG.md](CHANGELOG.md) resume los cambios y [AGENTS.md](AGENTS.md) establece las convenciones para futuras tareas.
+
+## Arquitectura
+
+React + TypeScript estricto + Vite; React Router conserva las rutas de V1. Zustand mantiene un estado compartido, Zod valida entradas e integridad y React Hook Form gestiona el editor de hallazgos. Radix proporciona diálogos; Inter local, Lucide, Recharts, Tailwind y tokens CSS conservan la identidad visual.
 
 ```text
 src/
-  domain/       Tipos, dataset, validación, reglas, selectores y CSV
-  store/        Estado único y persistencia versionada
-  components/   Layout, controles, diálogos y editor de hallazgos
-  pages/        Seis módulos y ficha de activo
-  test/         Preparación de Testing Library
-  styles.css    Tokens, composición y responsive
-e2e/            Recorridos Playwright
-AGENTS.md       Contrato técnico y visual para próximas tareas
+  domain/       Entidades V1/V2, migración, validación, fechas y reglas puras
+  persistence/  IndexedDB: metadatos, blobs, recuperación y transacciones
+  store/        Mutaciones serializadas, auditoría y confirmación del guardado
+  components/   Formularios, archivos, revisiones, filtros, historial e informes
+  pages/        Los seis módulos y la ficha 360°
+  reports/      PDF vectorial y Excel con datos filtrados
 ```
 
-La lógica pura del dominio, las mutaciones del store, la presentación y los recorridos son puntos de extensión suficientes para futuras skills de diseño, calidad e integridad. No hay infraestructura multiagente ni abstracciones de plugins en el MVP.
+Dependencias añadidas: **idb**, **jsPDF**, **jspdf-autotable** y **ExcelJS**; **fake-indexeddb** para pruebas. PDF y Excel cargan sus bibliotecas bajo demanda. ExcelJS genera un fragmento grande; se descarga al exportar Excel. No hay backend, autenticación simulada, API externa ni infraestructura multiagente.
 
-## Modelo e integridad
+## Persistencia, migración y reglas
 
-`DemoDatabase` agrupa `Installation`, `Asset`, `Finding`, `FindingEvent`, `PPEItem`, `PPEAssignment`, `ArcFlashStudy` y `DocumentRecord`. `DerivedAlert` es una proyección calculada. Cada entidad persistida tiene un ID estable; las relaciones usan esos IDs.
+- Base IndexedDB `sigee-v2`, versión física 1; esquema de datos `schemaVersion: 2`. `kv` conserva el estado y los respaldos; `files` conserva los blobs. No se guardan PDF en localStorage.
+- La primera apertura migra el sobre V1 de `localStorage['sigee-demo']`, valida relaciones y conserva el texto original en `kv['v1-backup']`. El localStorage original no se modifica. Un V1 ilegible se respalda antes de iniciar la demostración.
+- Un estado V2 inválido se conserva en `kv['v2-recovery-backup']` antes de recuperar el conjunto demostrativo. Sus archivos anteriores se mantienen. Los respaldos pueden inspeccionarse desde las herramientas del navegador: **Application → IndexedDB → sigee-v2 → kv**.
+- Cada escritura valida una copia completa y guarda metadatos y blobs en una sola transacción. Una revisión del estado evita sobrescribir cambios de otra pestaña: si hay un conflicto, se solicita recargar y no se aplica la operación obsoleta.
+- EPP: cantidades enteras no negativas; `total = disponibles + asignadas + no disponibles`. Los movimientos explican todos los saldos. El saldo inicial importado es una instantánea; no inventa movimientos anteriores desconocidos.
+- Las entradas requieren inspección antes de estar disponibles. Una devolución solo aumenta disponibilidad si se declara expresamente ese destino. Se conserva el registro de asignación y devolución.
+- El cierre de un hallazgo requiere acción correctiva, justificación y responsable declarado. Reabrir conserva eventos anteriores y elimina la fecha de cierre actual. El historial permite contar cierres anteriores aunque el hallazgo se reabra.
+- Metadatos, carga de un archivo y revisión formal son operaciones diferentes. Aprobar administrativamente no certifica seguridad. Las revisiones próximas, vencidas o sin programación se explican desde las fechas.
+- Fechas de calendario en `yyyy-MM-dd`; eventos ISO y agrupación en `America/Bogota`. Hoy no se considera vencido. El dataset conserva la referencia fija `2026-10-16`; sus fechas no avanzan al recargar.
+- Se conservan 3 instalaciones, 10 activos, 14 hallazgos, 12 EPP, 10 estudios y 15 documentos. La inicialización añade PDF ilustrativos a tres estudios y dos documentos; DOC-001 incluye una versión anterior adicional. Los registros nuevos se distinguen por procedencia de sesión.
 
-El inventario aplica **total = disponibles + no disponibles + asignadas**. Una asignación resta disponibilidad; devolverla la recupera. Las operaciones inválidas y las referencias inexistentes se rechazan antes de modificar el store. Cerrar un hallazgo registra la fecha de cierre; reabrirlo la elimina. El historial conserva cambios de estado, responsable y fecha objetivo, además de otros campos editados y comentarios.
+Los datos pertenecen al **origen, navegador y perfil actuales**. No se sincronizan entre computadores ni entre dominios de Vercel. Un despliegue Preview tiene su propio almacenamiento. Borrar los datos del sitio elimina registros y archivos locales. Para la exposición usa el mismo equipo, navegador y URL donde preparaste los datos.
 
-El dataset tiene 3 instalaciones ficticias, 10 activos, 14 hallazgos, 12 referencias EPP, 10 estudios, 15 documentos y 14 eventos iniciales. `DEMO_DATE = 2026-10-16` es su ancla fija; las fechas de ejemplo no cambian al recargar. Los vencimientos y las fechas de calendario usan la zona `America/Bogota`, por lo que los contadores evolucionan con el tiempo sin confundir el día local con el día UTC. Las pruebas del dataset usan la fecha de referencia explícita. Para renovar la demostración en una fecha futura, actualizar el ancla conscientemente y revisar los casos de prueba.
+Cada archivo admite hasta **10 MB** y el conjunto hasta **50 MB**, sujeto a la cuota del navegador. PDF para estudios y documentos; PDF/PNG/JPEG para evidencias e imágenes EPP. Se validan tipo, firma y tamaño. Un fallo de cuota o transacción muestra un error y no publica el estado como guardado.
 
-## Reglas de alertas
+**Restaurar datos de demostración** requiere confirmación y elimina los cambios y archivos actuales para regenerar el conjunto ficticio. Los informes exportados son documentos de consulta, no una copia restaurable de toda la base de datos.
 
-| Regla | Condición                                             | Resultado               |
-| ----- | ----------------------------------------------------- | ----------------------- |
-| R1    | Hallazgo de prioridad alta no cerrado                 | Seguimiento prioritario |
-| R2    | Hallazgo no cerrado con fecha objetivo anterior a hoy | Aviso de vencimiento    |
-| R3    | Inspección EPP con fecha anterior a hoy               | Aviso de inspección     |
-| R4    | Revisión de documento o estudio anterior a hoy        | Aviso documental        |
-| R5    | Cantidades de inventario inconsistentes o negativas   | Operación bloqueada     |
+## Interpretación de filtros e informes
 
-Los IDs incluyen la regla y el origen; una causa no duplica la misma alerta. Un hallazgo puede tener R1 y R2, porque son causas diferentes. Cerrar el registro elimina ambas. Un estado administrativo pendiente puede aparecer en los contadores de revisiones aunque aún no corresponda una alerta por vencimiento. Marcar un documento como registrado no elimina un aviso si su fecha sigue vencida.
+El período usa creación de hallazgos, fecha original de estudios/documentos y fecha de movimientos/eventos. Los activos reflejan su instalación actual. El inventario se filtra por la instalación de almacenamiento de cada referencia, incluyendo sus unidades asignadas. Una asignación a un activo de otra instalación no duplica el saldo de la referencia. Estado y prioridad filtran hallazgos. Estas reglas aparecen también en la ayuda de los filtros.
 
-## Persistencia y restauración
+Los pendientes históricos incluyen el arrastre anterior al período y se reconstruyen desde creación, cambios de estado y cierre. Las gráficas usan barras y escalones; el detalle mensual abre los registros exactos. El rango personalizado limita también los creados/cerrados dentro de meses parciales. El promedio de cierre usa registros actualmente cerrados en la selección.
 
-La clave `sigee-demo` de localStorage guarda `{ version, state: { db } }`. El esquema completo y las referencias se validan al recuperar. Una versión incompatible o datos dañados provocan un reinicio controlado con aviso; el MVP no intenta adivinar migraciones. Si el navegador impide escribir, se muestra un aviso de persistencia y el estado sigue en memoria.
+El PDF incluye portada, alcance, resumen calculado, gráficas vectoriales, tablas paginadas y trazabilidad. Se pueden seleccionar secciones. El Excel completo tiene diez hojas: Resumen, Hallazgos, Activos, Instalaciones, Inventario EPP, Movimientos EPP, Estudios, Documentos, Alertas e Historial. Mantiene filtros, encabezados, fechas y IDs. El resumen de contexto permanece en Excel aunque se seleccionen únicamente otras secciones. Los reportes incluyen los cambios guardados durante la sesión.
 
-Para restaurar, pulsa **Restaurar datos de demostración** en la navegación y confirma **Restaurar datos**. Recupera el dataset original y elimina tus cambios, comentarios y asignaciones. Cancelar conserva el estado.
+Los estudios ilustrativos no ejecutan IEEE 1584, no calculan energía incidente, no seleccionan EPP y no afirman cumplimiento NFPA 70E, RETIE ni otra norma. El historial es local y no se presenta como una auditoría inviolable o certificada.
 
-Los datos pertenecen a ese navegador y origen. No hay sincronización entre usuarios, transacciones entre pestañas, servidor, respaldo remoto ni auditoría inmutable. No introducir información sensible. Borrar los datos del navegador elimina la demostración local.
+## Publicar V2 en Vercel conservando V1
 
-## Verificación y calidad
+La rama **`feat/sigee-v2`** conserva el trabajo V2 separado de **`feat/vercel-production`**, que contiene la versión anterior. V2 parte del commit V1 `1b994ee7c2ab7f587cefff56621a7d9afa3d77b8`. La configuración de despliegue no necesita cambios: `base: '/'`, salida `dist`, recursos del mismo origen y reescritura SPA en `vercel.json`.
 
-Vitest comprueba conteos, prioridades, vencimientos, alertas y su eliminación al cerrar, integridad, inventario, transacciones, restauración, persistencia y recuperación. Testing Library comprueba formularios y protección de borradores. Playwright ejecuta el caso estrella y comprueba EPP, metadatos documentales, las seis secciones, responsive y datos corruptos. Las comprobaciones de accesibilidad automatizadas son un apoyo, no una certificación.
+1. Abre el proyecto conectado a **`1cfer/sigee`** en Vercel.
+2. Genera un **Preview Deployment** desde `feat/sigee-v2` para revisar V2 sin cambiar la rama de producción de V1. También puedes importar esa rama en un proyecto independiente.
+3. Usa raíz `.`, preset **Vite**, Node **24.x**, instalación `npm ci`, build `npm run build` y salida `dist`. No necesita variables de entorno ni credenciales dentro de la aplicación.
+4. Abre la URL HTTPS generada en Chrome o Edge y entra a `/dashboard`.
+5. Recarga `/activos/asset-1`, `/hallazgos`, `/epp`, `/estudios-documentos` y `/alertas`; ejecuta el guion de demostración. Una vez revisado, integra la rama mediante GitHub y publica conforme a la rama de producción que hayas elegido.
 
-Las convenciones completas están en [AGENTS.md](AGENTS.md). No hay cálculos de energía incidente, selección de EPP, SCADA, control eléctrico, certificaciones ni afirmaciones de cumplimiento NFPA 70E, IEEE 1584 o RETIE. No se generan estudios técnicos. Los avisos no autorizan trabajos ni determinan condiciones seguras de operación.
+El build y sus rutas se verifican localmente con `vite preview`. Eso no equivale a un despliegue público. La publicación y comprobación de la URL de Vercel requieren acceso a tu proyecto; este entorno no dispone de sus credenciales y la URL pública existente tiene acceso de red restringido desde la nube.
 
-## Guion de demostración · 90 segundos
+## Calidad y límites conocidos
 
-1. **0–15 s:** abre Centro de control. Señala el aviso de datos simulados, los hallazgos abiertos y los de prioridad alta.
-2. **15–30 s:** entra en Activos eléctricos → ACT-001. Muestra documentos, estudios y avisos conectados por activo.
-3. **30–50 s:** pulsa Crear hallazgo, escribe una observación ficticia, elige prioridad alta, asigna responsable y fecha objetivo. Guarda y verifica el registro en la ficha.
-4. **50–65 s:** vuelve al dashboard: aumentan abiertos y prioridad alta. En Alertas, abre el nuevo aviso y edita el hallazgo para cerrarlo.
-5. **65–80 s:** comprueba que desapareció la alerta y bajaron los indicadores. Recarga para mostrar la persistencia del cierre y su historial.
-6. **80–90 s:** muestra brevemente EPP y Estudios y documentos. Restaura el dataset con confirmación para dejar la siguiente demo preparada.
+Las pruebas cubren integridad, fechas, migración y recuperación, conflictos de pestañas, errores de cuota, saldos/movimientos, versiones, cierre y reapertura, alertas, filtros, históricos, PDF y lectura del Excel generado. Playwright comprueba los flujos completos, persistencia tras recarga, accesibilidad automatizada, escritorio/tablet/móvil, rutas profundas y recursos compilados.
+
+No hay sincronización multiusuario, recuperación remota de archivos ni auditoría certificada. El inventario es por referencia y cantidad, sin trazabilidad de números de serie individuales. El buscador global limita resultados visibles por categoría. El historial de cada ficha muestra hasta 80 eventos recientes; el informe puede incluir el historial completo de su selección. Las series del dashboard muestran hasta 24 meses por legibilidad.
+
+`npm audit --omit=dev` detecta un aviso moderado transitivo de `uuid` en ExcelJS 4.4.0, sin corrección oficial disponible en ese paquete; no detecta avisos altos o críticos en la revisión realizada. SIGEE usa ExcelJS para generar libros y no expone las funciones UUID v3/v5/v6 con buffers señaladas por el aviso. No se han forzado versiones incompatibles ni ocultado los resultados de auditoría.

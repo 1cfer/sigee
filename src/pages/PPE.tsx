@@ -1,286 +1,92 @@
-import { errorMessage } from '../domain/errors';
-import { NavigationGuard } from '../components/NavigationGuard';
-import { useToast } from '../components/toast-context';
-import { useRef, useState } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { Pencil, ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Plus } from 'lucide-react';
 import { useDatabase } from '../store/useDatabase';
-import { displayDate, isPast } from '../domain/dates';
-import { ppeSchema } from '../domain/validation';
-import type { PPEItem } from '../domain/types';
+import { today, displayDate } from '../domain/dates';
+import { inventoryReasons } from '../domain/analysis';
+import { UNAVAILABLE_REASONS, type UnavailableReason } from '../domain/v2';
 import {
-  Badge,
-  Confirm,
-  EmptyState,
-  Field,
-  FilterSelect,
-  Modal,
-  PageHeading,
-  SearchInput,
-} from '../components/ui';
-
-function PPEEditor({ item, onClose }: { item: PPEItem; onClose: () => void }) {
-  const leaving = useRef(false);
-  const exit = () => {
-    leaving.current = true;
-    onClose();
-  };
-  const db = useDatabase((s) => s.db);
-  const save = useDatabase((s) => s.savePPE);
-  const assign = useDatabase((s) => s.assignPPE);
-  const release = useDatabase((s) => s.releaseAssignment);
-  const toast = useToast();
-  const [error, setError] = useState('');
-  const [assetId, setAssetId] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [discard, setDiscard] = useState(false);
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isDirty },
-    reset,
-  } = useForm<Omit<PPEItem, 'id' | 'code'>>({
-    resolver: zodResolver(ppeSchema),
-    defaultValues: item,
-  });
-  const assigned = db.assignments.filter((a) => a.ppeId === item.id);
-  const close = () => {
-    if (isDirty) setDiscard(true);
-    else exit();
-  };
-  return (
-    <Modal
-      open
-      onClose={close}
-      title={`${item.code} · ${item.type}`}
-      description="Inventario y asignaciones ficticias. Sin selección automática ni recomendación de EPP."
-      wide
-    >
-      <form
-        onSubmit={handleSubmit((values) => {
-          try {
-            save(item.id, values);
-            reset(values);
-            setError('');
-            toast('Inventario actualizado.');
-          } catch (e) {
-            setError(errorMessage(e, 'Revisa las cantidades.'));
-          }
-        })}
-      >
-        <div className="form-grid">
-          <Field label="Tipo de EPP" required error={errors.type?.message}>
-            <input {...register('type')} />
-          </Field>
-          <Field label="Referencia" required error={errors.reference?.message}>
-            <input {...register('reference')} />
-          </Field>
-          <Field label="Cantidad total" required error={errors.total?.message}>
-            <input type="number" min="0" {...register('total', { valueAsNumber: true })} />
-          </Field>
-          <Field label="Cantidad disponible" required error={errors.available?.message}>
-            <input type="number" min="0" {...register('available', { valueAsNumber: true })} />
-          </Field>
-          <Field label="Cantidad no disponible" required error={errors.unavailable?.message}>
-            <input type="number" min="0" {...register('unavailable', { valueAsNumber: true })} />
-          </Field>
-          <Field label="Unidades asignadas">
-            <input readOnly value={assigned.reduce((sum, a) => sum + a.quantity, 0)} />
-          </Field>
-          <Field label="Próxima inspección" required error={errors.nextInspection?.message}>
-            <input type="date" {...register('nextInspection')} />
-          </Field>
-          <Field label="Estado de inspección">
-            <select {...register('inspectionStatus')}>
-              <option value="registrada">Registrada</option>
-              <option value="pendiente">Pendiente</option>
-            </select>
-          </Field>
-          <div className="span-2">
-            <Field label="Observaciones" error={errors.notes?.message}>
-              <textarea rows={2} {...register('notes')} />
-            </Field>
-          </div>
-        </div>
-        <p className="form-hint">
-          Total = disponibles + no disponibles + asignadas. Las asignaciones reservan unidades del
-          inventario.
-        </p>
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="dialog-actions">
-          <button type="button" className="button secondary" onClick={close}>
-            Cerrar
-          </button>
-          <button className="button primary" type="submit">
-            Guardar inventario
-          </button>
-        </div>
-      </form>
-      <div className="assignment-section">
-        <h3>Asignaciones ficticias</h3>
-        {assigned.map((a) => (
-          <div className="assignment-row" key={a.id}>
-            <Link to={`/activos/${a.assetId}`}>
-              {db.assets.find((asset) => asset.id === a.assetId)?.code}
-            </Link>
-            <span>{a.quantity} unidad(es)</span>
-            <button
-              className="text-link"
-              disabled={isDirty}
-              onClick={() => {
-                try {
-                  release(a.id);
-                  reset({ ...item, available: item.available + a.quantity });
-                  toast('Unidades devueltas al inventario.');
-                  setError('');
-                } catch (e) {
-                  setError(errorMessage(e, 'No se pudo devolver.'));
-                }
-              }}
-            >
-              Devolver
-            </button>
-          </div>
-        ))}
-        <form
-          className="assignment-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            try {
-              assign(item.id, assetId, quantity);
-              reset({ ...item, available: item.available - quantity });
-              setError('');
-              toast('Asignación registrada. Disponibilidad actualizada.');
-            } catch (e) {
-              setError(errorMessage(e, 'No se pudo asignar.'));
-            }
-          }}
-        >
-          <Field label="Activo de destino" required>
-            <select value={assetId} onChange={(e) => setAssetId(e.target.value)} required>
-              <option value="">Selecciona un activo</option>
-              {db.assets.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.code} · {a.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Unidades" required>
-            <input
-              type="number"
-              min="1"
-              max={item.available}
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-              required
-            />
-          </Field>
-          <button disabled={isDirty} className="button secondary" type="submit">
-            Asignar
-          </button>
-        </form>
-        {isDirty && (
-          <p className="form-hint">
-            Guarda los cambios de inventario antes de gestionar asignaciones.
-          </p>
-        )}
-      </div>
-      <NavigationGuard leaving={leaving} dirty={isDirty} />
-      <Confirm
-        open={discard}
-        onClose={() => setDiscard(false)}
-        title="Descartar cambios"
-        description="Hay cambios en el inventario sin guardar."
-        label="Descartar"
-        onConfirm={exit}
-      />
-    </Modal>
-  );
-}
+  ArchiveButton,
+  Attachments,
+  EntityEditor,
+  History,
+  RecordState,
+  RecordTabs,
+  SaveForm,
+} from '../components/RecordTools';
+import { Badge, EmptyState, Field, Modal, PageHeading, SearchInput } from '../components/ui';
+import { useToast } from '../components/toast-context';
 
 export function PPE() {
   const db = useDatabase((s) => s.db);
   const [params, setParams] = useSearchParams();
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState(params.has('pendientes') ? 'pendiente' : '');
+  const [search, setSearch] = useState(''),
+    [showArchived, setArchived] = useState(false),
+    [edit, setEdit] = useState<{ id?: string }>(),
+    [tab, setTab] = useState('consulta'),
+    [movementType, setMovementType] = useState<
+      'entrada' | 'inspección' | 'cambio de estado' | 'corrección' | 'baja'
+    >('entrada');
+  const toast = useToast();
   const selected = db.ppe.find((p) => p.id === params.get('registro'));
-  const filtered = db.ppe.filter(
+  const rows = db.ppe.filter(
     (p) =>
-      `${p.code} ${p.type} ${p.reference}`
+      (showArchived || !p.archived) &&
+      `${p.code} ${p.type} ${p.reference} ${p.category}`
         .toLocaleLowerCase('es')
-        .includes(search.toLocaleLowerCase('es')) &&
-      (!status ||
-        (status === 'pendiente'
-          ? isPast(p.nextInspection) || p.inspectionStatus === 'pendiente'
-          : !isPast(p.nextInspection) && p.inspectionStatus === 'registrada')),
+        .includes(search.toLocaleLowerCase('es')),
   );
   const open = (id: string) => {
-    const next = new URLSearchParams(params);
-    if (id) next.set('registro', id);
-    else next.delete('registro');
-    setParams(next);
+    setParams({ registro: id });
+    setTab('consulta');
   };
+  const assigned = (id: string) =>
+    db.assignments
+      .filter((a) => a.ppeId === id && !a.returnedAt)
+      .reduce((s, a) => s + a.quantity, 0);
   return (
     <>
       <PageHeading
-        eyebrow="04 / RECURSOS DE DEMOSTRACIÓN"
+        eyebrow="04 / RECURSOS Y MOVIMIENTOS"
         title="Inventario EPP"
-        description="Disponibilidad, asignaciones e inspecciones en un mismo registro."
+        description="Disponibilidad explicable: cada unidad conserva su estado y sus movimientos."
+        actions={
+          <button className="button primary" onClick={() => setEdit({})}>
+            <Plus size={16} />
+            Crear referencia EPP
+          </button>
+        }
       />
-      <div className="small-summary">
-        <ShieldCheck size={18} />
-        <strong>{db.ppe.length} referencias</strong>
-        <span>{db.ppe.reduce((sum, p) => sum + p.available, 0)} unidades disponibles</span>
-        <Badge tone="amber">
-          {
-            db.ppe.filter((p) => isPast(p.nextInspection) || p.inspectionStatus === 'pendiente')
-              .length
-          }{' '}
-          inspecciones pendientes
-        </Badge>
-      </div>
       <section className="panel table-panel">
         <div className="toolbar">
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Buscar EPP, código o referencia…"
+            placeholder="Buscar tipo, código o referencia EPP…"
           />
-          <FilterSelect
-            label="Todas las inspecciones"
-            value={status}
-            onChange={setStatus}
-            options={[
-              { value: 'pendiente', label: 'Pendientes' },
-              { value: 'registrada', label: 'Sin pendientes' },
-            ]}
-          />
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setArchived(e.target.checked)}
+            />
+            Incluir archivados
+          </label>
         </div>
         <div className="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>Elemento de protección</th>
+                <th>Referencia EPP</th>
                 <th>Total</th>
                 <th>Disponibles</th>
-                <th>No disponibles</th>
                 <th>Asignadas</th>
+                <th>No disponibles</th>
                 <th>Próxima inspección</th>
-                <th>Seguimiento</th>
-                <th>
-                  <span className="sr-only">Editar</span>
-                </th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
+              {rows.map((p) => (
                 <tr key={p.id}>
                   <td>
                     <button className="table-title" onClick={() => open(p.id)}>
@@ -292,48 +98,382 @@ export function PPE() {
                   </td>
                   <td>{p.total}</td>
                   <td>
-                    <strong className="teal-text">{p.available}</strong>
+                    <Badge tone="teal">{p.available}</Badge>
                   </td>
-                  <td>{p.unavailable}</td>
+                  <td>{assigned(p.id)}</td>
                   <td>
-                    {db.assignments
-                      .filter((a) => a.ppeId === p.id)
-                      .reduce((sum, a) => sum + a.quantity, 0)}
-                  </td>
-                  <td>{displayDate(p.nextInspection)}</td>
-                  <td>
-                    <Badge
-                      tone={
-                        isPast(p.nextInspection) || p.inspectionStatus === 'pendiente'
-                          ? 'amber'
-                          : 'teal'
-                      }
-                    >
-                      {isPast(p.nextInspection) || p.inspectionStatus === 'pendiente'
-                        ? 'Pendiente'
-                        : 'Registrada'}
-                    </Badge>
+                    <Badge tone={p.unavailable ? 'amber' : 'neutral'}>{p.unavailable}</Badge>
                   </td>
                   <td>
-                    <button
-                      className="icon-button"
-                      aria-label={`Editar ${p.code}`}
-                      onClick={() => open(p.id)}
-                    >
-                      <Pencil size={16} />
-                    </button>
+                    {p.nextInspection ? displayDate(p.nextInspection) : 'Sin fecha programada'}
+                    <span className="table-sub">{p.inspectionStatus}</span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {!filtered.length && <EmptyState />}
+        {!rows.length && (
+          <EmptyState
+            title="Sin referencias en esta vista"
+            description="Crea una referencia EPP para registrar entradas y controlar sus estados."
+            action={
+              <button className="button primary" onClick={() => setEdit({})}>
+                Crear referencia EPP
+              </button>
+            }
+          />
+        )}
         <div className="table-footer">
-          {filtered.length} referencias · Inventario ficticio, sin recomendaciones de uso.
+          {rows.length} referencias · Total = disponibles + asignadas + no disponibles
         </div>
       </section>
-      {selected && <PPEEditor item={selected} onClose={() => open('')} />}
+      <div className="context-note">
+        La disponibilidad es administrativa. No determina la idoneidad técnica de un EPP para una
+        tarea.
+      </div>
+      {selected && (
+        <Modal
+          open
+          wide
+          onClose={() => setParams({})}
+          title={`${selected.code} · ${selected.type}`}
+          description="Ficha de inventario y trazabilidad de unidades."
+        >
+          <div className="record-body">
+            <RecordState archived={selected.archived} provenance={selected.provenance} />
+            <div className="inventory-balances">
+              {[
+                ['Total', selected.total],
+                ['Disponibles', selected.available],
+                ['Asignadas', assigned(selected.id)],
+                ['No disponibles', selected.unavailable],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <span>{label}</span>
+                  <strong data-testid={`balance-${label}`}>{value}</strong>
+                </div>
+              ))}
+            </div>
+            <RecordTabs
+              value={tab}
+              onChange={setTab}
+              label="Ficha EPP"
+              options={['consulta', 'movimientos', 'asignaciones', 'archivos', 'historial'].map(
+                (value) => ({ value, label: value[0]!.toUpperCase() + value.slice(1) }),
+              )}
+            />
+            {tab === 'consulta' && (
+              <>
+                <dl className="detail-grid">
+                  {[
+                    ['Referencia', selected.reference],
+                    ['Categoría', selected.category],
+                    ['Fabricante', selected.manufacturer || 'Sin registrar'],
+                    ['Ubicación', selected.location],
+                    [
+                      'Última inspección',
+                      selected.lastInspection
+                        ? displayDate(selected.lastInspection)
+                        : 'Sin registro formal',
+                    ],
+                    [
+                      'Próxima inspección',
+                      selected.nextInspection
+                        ? displayDate(selected.nextInspection)
+                        : 'Sin fecha programada',
+                    ],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <dt>{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p>{selected.description}</p>
+                <p>{selected.notes}</p>
+                <h3>Motivos de no disponibilidad</h3>
+                <div className="reason-grid">
+                  {UNAVAILABLE_REASONS.map((reason) => (
+                    <div key={reason}>
+                      <span>{reason}</span>
+                      <strong>{inventoryReasons(db, selected.id)[reason] ?? 0}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="detail-actions">
+                  <button className="button secondary" onClick={() => setEdit({ id: selected.id })}>
+                    Editar referencia
+                  </button>
+                  <ArchiveButton kind="ppe" id={selected.id} archived={selected.archived} />
+                  <button className="button primary" onClick={() => setTab('movimientos')}>
+                    Registrar movimiento
+                  </button>
+                </div>
+              </>
+            )}
+            {tab === 'movimientos' && (
+              <>
+                <h3>Registrar movimiento</h3>
+                <SaveForm
+                  label="Guardar movimiento"
+                  onSave={async (data) => {
+                    await useDatabase.getState().movePPE(selected.id, {
+                      type: movementType,
+                      quantity: Number(data.get('quantity')),
+                      from: String(data.get('from') || 'disponible') as
+                        'disponible' | UnavailableReason,
+                      to: String(data.get('to')) as 'disponible' | UnavailableReason,
+                      responsible: String(data.get('responsible')),
+                      source: String(data.get('source')),
+                      notes: String(data.get('notes')),
+                      date: String(data.get('date')),
+                      nextInspection: String(data.get('nextInspection') ?? ''),
+                    });
+                    toast('Movimiento guardado; saldos actualizados.');
+                  }}
+                >
+                  <div className="form-grid">
+                    <Field label="Tipo de movimiento">
+                      <select
+                        value={movementType}
+                        onChange={(e) => setMovementType(e.target.value as typeof movementType)}
+                      >
+                        {['entrada', 'inspección', 'cambio de estado', 'corrección', 'baja'].map(
+                          (t) => (
+                            <option key={t}>{t}</option>
+                          ),
+                        )}
+                      </select>
+                    </Field>
+                    <Field label="Unidades del movimiento" required>
+                      <input
+                        name="quantity"
+                        type="number"
+                        min={1}
+                        step={1}
+                        required
+                        defaultValue={1}
+                      />
+                    </Field>
+                    {movementType !== 'entrada' && (
+                      <Field label="Estado de origen">
+                        <select name="from" defaultValue="pendiente de inspección">
+                          {['disponible', ...UNAVAILABLE_REASONS].map((t) => (
+                            <option key={t}>{t}</option>
+                          ))}
+                        </select>
+                      </Field>
+                    )}
+                    <Field label="Estado de destino">
+                      <select
+                        name="to"
+                        key={movementType}
+                        defaultValue={
+                          movementType === 'inspección'
+                            ? 'disponible'
+                            : movementType === 'baja'
+                              ? 'dado de baja'
+                              : 'pendiente de inspección'
+                        }
+                      >
+                        {[
+                          ...(movementType === 'entrada' ? [] : ['disponible']),
+                          ...UNAVAILABLE_REASONS,
+                        ].map((t) => (
+                          <option key={t}>{t}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Fecha del movimiento" required>
+                      <input
+                        name="date"
+                        type="date"
+                        defaultValue={today()}
+                        max={today()}
+                        required
+                      />
+                    </Field>
+                    {movementType === 'inspección' && (
+                      <Field label="Programar próxima inspección">
+                        <input type="date" name="nextInspection" min={today()} />
+                      </Field>
+                    )}
+                    <Field label="Responsable del movimiento" required>
+                      <input name="responsible" required maxLength={200} />
+                    </Field>
+                    <Field label="Procedencia o referencia" required>
+                      <input name="source" required maxLength={200} />
+                    </Field>
+                    <Field label="Motivo y observaciones" required>
+                      <textarea name="notes" required maxLength={3000} />
+                    </Field>
+                  </div>
+                  <p className="muted">
+                    Las entradas quedan no disponibles. Una inspección documentada puede trasladar
+                    unidades a disponibles. Las correcciones requieren un motivo y conservan el
+                    movimiento original.
+                  </p>
+                </SaveForm>
+                <h3 className="subheading">Libro de movimientos</h3>
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Fecha / tipo</th>
+                        <th>Unidades</th>
+                        <th>Variación disponibles</th>
+                        <th>Variación asignadas</th>
+                        <th>Motivo / responsable</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {db.movements
+                        .filter((m) => m.ppeId === selected.id)
+                        .sort((a, b) => b.at.localeCompare(a.at))
+                        .map((m) => (
+                          <tr key={m.id}>
+                            <td>
+                              {displayDate(m.at)}
+                              <span className="table-sub">{m.type}</span>
+                            </td>
+                            <td>{m.quantity}</td>
+                            <td>
+                              {m.availableDelta > 0 ? '+' : ''}
+                              {m.availableDelta}
+                            </td>
+                            <td>
+                              {m.assignedDelta > 0 ? '+' : ''}
+                              {m.assignedDelta}
+                            </td>
+                            <td>
+                              {m.notes}
+                              <span className="table-sub">
+                                {m.responsible} · {m.source}
+                              </span>
+                              <span className="table-sub">
+                                {Object.entries(m.unavailableDelta)
+                                  .map(([r, n]) => `${r}: ${n! > 0 ? '+' : ''}${n}`)
+                                  .join(' · ')}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            {tab === 'asignaciones' && (
+              <>
+                <h3>Asignar unidades disponibles</h3>
+                <SaveForm
+                  label="Asignar unidades"
+                  onSave={async (data) => {
+                    await useDatabase
+                      .getState()
+                      .assignPPE(
+                        selected.id,
+                        String(data.get('assetId')),
+                        Number(data.get('quantity')),
+                        {
+                          responsible: String(data.get('responsible')),
+                          activity: String(data.get('activity')),
+                          expectedReturn: String(data.get('expectedReturn')),
+                          notes: String(data.get('notes')),
+                        },
+                      );
+                    toast('Asignación guardada.');
+                  }}
+                >
+                  <div className="form-grid">
+                    <Field label="Activo de destino" required>
+                      <select name="assetId" required>
+                        <option value="">Selecciona un activo</option>
+                        {db.assets
+                          .filter((a) => !a.archived)
+                          .map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.code} · {a.name}
+                            </option>
+                          ))}
+                      </select>
+                    </Field>
+                    <Field label="Unidades a asignar" required>
+                      <input
+                        name="quantity"
+                        type="number"
+                        min={1}
+                        max={selected.available}
+                        required
+                        defaultValue={1}
+                      />
+                    </Field>
+                    <Field label="Responsable de asignación" required>
+                      <input name="responsible" required maxLength={200} />
+                    </Field>
+                    <Field label="Actividad" required>
+                      <input name="activity" required maxLength={200} />
+                    </Field>
+                    <Field label="Devolución prevista">
+                      <input type="date" name="expectedReturn" min={today()} />
+                    </Field>
+                    <Field label="Observaciones de asignación">
+                      <textarea name="notes" maxLength={3000} />
+                    </Field>
+                  </div>
+                </SaveForm>
+                <h3 className="subheading">Asignaciones e historial de devoluciones</h3>
+                {db.assignments
+                  .filter((a) => a.ppeId === selected.id)
+                  .map((a) => (
+                    <article className="assignment-row" key={a.id}>
+                      <p>
+                        <Link className="text-link" to={`/activos/${a.assetId}`}>
+                          {db.assets.find((r) => r.id === a.assetId)?.code}
+                        </Link>{' '}
+                        · {a.quantity} unidades · {a.responsible}
+                        <span className="table-sub">
+                          {a.activity} · {displayDate(a.assignedAt)}
+                          {a.expectedReturn && ` · Prevista ${displayDate(a.expectedReturn)}`}
+                        </span>
+                      </p>
+                      {a.returnedAt ? (
+                        <Badge tone="teal">Devuelto · {displayDate(a.returnedAt)}</Badge>
+                      ) : (
+                        <SaveForm
+                          label="Registrar devolución"
+                          onSave={async (data) => {
+                            await useDatabase
+                              .getState()
+                              .releaseAssignment(
+                                a.id,
+                                String(data.get('condition')) as 'disponible' | UnavailableReason,
+                              );
+                            toast('Devolución guardada con el estado de recepción.');
+                          }}
+                        >
+                          <Field label={`Estado de recepción ${a.id}`}>
+                            <select name="condition" defaultValue="pendiente de inspección">
+                              {['disponible', ...UNAVAILABLE_REASONS].map((t) => (
+                                <option key={t}>{t}</option>
+                              ))}
+                            </select>
+                          </Field>
+                        </SaveForm>
+                      )}
+                    </article>
+                  ))}
+              </>
+            )}
+            {tab === 'archivos' && <Attachments kind="ppe" id={selected.id} />}{' '}
+            {tab === 'historial' && <History kind="ppe" id={selected.id} />}
+          </div>
+        </Modal>
+      )}
+      {edit && (
+        <EntityEditor kind="ppe" id={edit.id} onClose={() => setEdit(undefined)} onSaved={open} />
+      )}
     </>
   );
 }
